@@ -43,4 +43,4 @@ current_progress.md  # 已完成事项流水账
 
 - ROS2 Humble · Python 3.10 · Jetson Orin Nano · JetPack
 - SmolVLA / LeRobot（`ref_code/` 引用，不复制）
-- 底盘串口协议：ESP32，115200 baud，`/dev/ttyTHS1`
+- 底盘串口协议：ESP32，115200 baud，默认使用 CH341 USB 转串口 `/dev/ttyCH341USB0`

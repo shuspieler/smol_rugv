@@ -86,7 +86,7 @@ pip install -r tools/ugv_ctrl_tester/requirements.txt
 python tools/ugv_ctrl_tester/ctrl_test.py --dry_run
 
 # 真实硬件
-python tools/ugv_ctrl_tester/ctrl_test.py --serial_port /dev/ttyTHS1 --camera_index 0
+python tools/ugv_ctrl_tester/ctrl_test.py --serial_port /dev/ttyCH341USB0 --camera_index 0
 ```
 
 键盘操作：`WASD` 移动，`QE` 调速，`Space` 急停，`Esc` 退出。

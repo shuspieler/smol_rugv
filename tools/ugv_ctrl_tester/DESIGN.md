@@ -138,7 +138,7 @@ from teleop import KeyboardUGVTeleop
 
 | 参数 | 内置默认值 |
 |------|-----------|
-| `--serial_port` | `/dev/ttyTHS1` |
+| `--serial_port` | `/dev/ttyCH341USB0` |
 | `--camera_index` | `0` |
 | `--control_hz` | `10` |
 | `--image_interval` | `5.0` s |

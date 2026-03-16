@@ -7,7 +7,7 @@ record.py — UGV 数据采集主入口
 用法：
     python record.py                          # 使用 config/ugv_config.yaml 的默认设置
     python record.py --dry_run               # 测试模式，不连接真实硬件
-    python record.py --serial_port /dev/ttyTHS1 --repo_id myname/ugv-task --num_episodes 20
+    python record.py --serial_port /dev/ttyCH341USB0 --repo_id myname/ugv-task --num_episodes 20
 
 完整参数说明见 README.md 和 DESIGN.md。
 """
@@ -446,7 +446,7 @@ def parse_args() -> argparse.Namespace:
     )
 
     # -- 硬件参数（覆盖 yaml） --
-    parser.add_argument("--serial_port", default=None, help="串口设备路径，如 /dev/ttyTHS1")
+    parser.add_argument("--serial_port", default=None, help="串口设备路径，如 /dev/ttyCH341USB0")
     parser.add_argument("--camera_index", type=int, default=None, help="摄像头 /dev/videoN 序号")
     parser.add_argument("--dry_run", action="store_true", help="跳过真实串口和摄像头（调试用）")
 

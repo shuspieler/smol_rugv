@@ -14,4 +14,5 @@
 14→- 已完成 Sprint 4：VLA 模块架构设计与基础代码实现（vla_bridge_node, ros_io, shared_buffer, smol_vla_policy_wrapper）
 15→15→- 已完成 Sprint 5：建立 smol_bringup 启动包与系统参数分层
 16→16→- 已完成 Sprint 5：建立系统级启动顺序与降级策略验证
+- 已同步项目文档与默认配置：底盘串口切换为 CH341 USB 转串口 `/dev/ttyCH341USB0`
 </toolcall_result>

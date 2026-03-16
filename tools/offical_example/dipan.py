@@ -1,7 +1,7 @@
 from ./../../rerobot-study/ugv/jetson/base_ctrl import BaseController
 import json
 
-base = BaseController('/dev/ttyTHS1', 115200)
+base = BaseController('/dev/ttyCH341USB0', 115200)
 
 # 使用无限循环来不断监听串口数据
 while True:

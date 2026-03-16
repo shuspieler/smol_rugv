@@ -15,7 +15,7 @@ def is_jetson():
     return result
 
 if is_jetson():
-    serial_port = '/dev/ttyTHS1'
+    serial_port = '/dev/ttyCH341USB0'
 else:
     serial_port = '/dev/ttyAMA0'
 

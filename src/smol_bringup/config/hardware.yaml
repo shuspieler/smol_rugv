@@ -4,5 +4,5 @@ chassis_bringup:
 
 chassis_driver:
   ros__parameters:
-    serial_port: /dev/ttyTHS1
+    serial_port: /dev/ttyCH341USB0
     serial_baud: 115200

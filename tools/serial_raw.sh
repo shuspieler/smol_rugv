@@ -6,11 +6,11 @@
 #   bash serial_raw.sh [端口] [波特率] [模式]
 #
 # 示例:
-#   bash serial_raw.sh /dev/ttyTHS1 115200 hex    # hex dump (默认)
-#   bash serial_raw.sh /dev/ttyTHS1 115200 text   # 可见字符
-#   bash serial_raw.sh /dev/ttyTHS1 115200 raw    # 直接 cat 输出到终端
+#   bash serial_raw.sh /dev/ttyCH341USB0 115200 hex    # hex dump (默认)
+#   bash serial_raw.sh /dev/ttyCH341USB0 115200 text   # 可见字符
+#   bash serial_raw.sh /dev/ttyCH341USB0 115200 raw    # 直接 cat 输出到终端
 
-PORT="${1:-/dev/ttyTHS1}"
+PORT="${1:-/dev/ttyCH341USB0}"
 BAUD="${2:-115200}"
 MODE="${3:-hex}"
 
@@ -25,7 +25,7 @@ echo ""
 if [ ! -e "$PORT" ]; then
     echo "[错误] 设备不存在: $PORT"
     echo "可用串口设备:"
-    ls /dev/ttyTHS* /dev/ttyACM* /dev/ttyUSB* /dev/ttyS* 2>/dev/null | xargs -I{} sh -c 'echo "  {}"'
+    ls /dev/ttyCH341USB* /dev/ttyUSB* /dev/ttyACM* /dev/ttyTHS* /dev/ttyS* 2>/dev/null | xargs -I{} sh -c 'echo "  {}"'
     exit 1
 fi
 

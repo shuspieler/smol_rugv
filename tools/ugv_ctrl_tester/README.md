@@ -34,7 +34,7 @@ pip install -r requirements.txt
 python ctrl_test.py
 
 # 覆盖串口和摄像头
-python ctrl_test.py --serial_port /dev/ttyTHS1 --camera_index 0
+python ctrl_test.py --serial_port /dev/ttyCH341USB0 --camera_index 0
 
 # 不连接真实硬件（调试流程）
 python ctrl_test.py --dry_run
@@ -106,7 +106,7 @@ output/
 ## 硬件配置
 
 本工具自动读取 `../ugv_data_collector/config/ugv_config.yaml` 中的串口和相机参数。
-如未找到该文件，使用内置默认值（串口 `/dev/ttyTHS1`，摄像头 `/dev/video0`）。
+如未找到该文件，使用内置默认值（串口 `/dev/ttyCH341USB0`，摄像头 `/dev/video0`）。
 
 如需修改，直接编辑 `ugv_data_collector` 的 `ugv_config.yaml`，或通过命令行参数覆盖。
 

@@ -80,7 +80,7 @@
 
 > 日期：  
 > 测试人：  
-> 环境：Jetson Orin / 串口 `/dev/ttyTHS1` / 摄像头 `/dev/video0`
+> 环境：Jetson Orin / 串口 `/dev/ttyCH341USB0` / 摄像头 `/dev/video0`
 
 | 项目 | 结果 | 备注 |
 |------|------|------|

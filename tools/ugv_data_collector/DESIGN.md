@@ -151,7 +151,7 @@ cd tools/ugv_data_collector
 
 # 键盘遥控（默认）
 python record.py \
-  --serial_port /dev/ttyTHS1 \
+      --serial_port /dev/ttyCH341USB0 \
   --camera_index 0 \
   --repo_id myname/ugv-follow-task \
   --single_task "Follow the person" \

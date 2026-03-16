@@ -21,7 +21,7 @@ class UGVCameraConfig:
 @dataclass
 class UGVSerialConfig:
     """串口与底盘物理参数"""
-    port: str = "/dev/ttyTHS1"
+    port: str = "/dev/ttyCH341USB0"
     baud: int = 115200
     timeout: float = 1.0
     # 底盘物理参数
@@ -54,7 +54,7 @@ class UGVRoverConfig:
 
         return cls(
             serial=UGVSerialConfig(
-                port=serial_raw.get("port", "/dev/ttyTHS1"),
+                port=serial_raw.get("port", "/dev/ttyCH341USB0"),
                 baud=serial_raw.get("baud", 115200),
                 timeout=serial_raw.get("timeout", 1.0),
                 wheel_base=serial_raw.get("wheel_base", 0.235),

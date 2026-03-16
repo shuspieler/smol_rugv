@@ -24,7 +24,7 @@ ctrl_test.py — UGV 控制通路快速验证工具
 用法：
     python ctrl_test.py
     python ctrl_test.py --dry_run
-    python ctrl_test.py --serial_port /dev/ttyTHS1 --camera_index 0
+    python ctrl_test.py --serial_port /dev/ttyCH341USB0 --camera_index 0
     python ctrl_test.py --image_interval 5 --log_interval 1
 """
 from __future__ import annotations
@@ -51,7 +51,7 @@ if _COLLECTOR_DIR not in sys.path:
 # ---------------------------------------------------------------------------
 # 默认值
 # ---------------------------------------------------------------------------
-DEFAULT_SERIAL_PORT    = "/dev/ttyTHS1"
+DEFAULT_SERIAL_PORT    = "/dev/ttyCH341USB0"
 DEFAULT_CAMERA_INDEX   = 0
 DEFAULT_CONTROL_HZ     = 10       # 控制循环频率（Hz）
 DEFAULT_IMAGE_INTERVAL = 5.0      # 图片采样间隔（秒）
@@ -552,7 +552,7 @@ def run_serial_diag(args: argparse.Namespace) -> None:
         ser = _serial.Serial(port, baud, timeout=1.0)
     except Exception as e:
         print(f"[ERROR] 无法打开串口 {port}: {e}")
-        print("  提示: ESP32 通过 USB 连接时口一般为 /dev/ttyACM0")
+        print("  提示: 当前项目默认使用 CH341 USB 转串口，一般为 /dev/ttyCH341USB0")
         return
 
     class _RL:
@@ -682,8 +682,8 @@ def run_serial_diag(args: argparse.Namespace) -> None:
     if good == 0:
         print("  [错误] 未收到任何 T:1001 反馈包！")
         print("  可能原因:")
-        print("    1. 串口号错误: ESP32 USB 应是 /dev/ttyACM0，不是 /dev/ttyTHS1")
-        print("    2. 线路未接: /dev/ttyTHS1 是 GPIO UART，悬空时收全零")
+        print("    1. 串口号错误: 当前方案应使用 /dev/ttyCH341USB0")
+        print("    2. CH341 驱动未加载或设备节点未出现")
         print("    3. 对方尚未起来或波特率不匹配")
 
 

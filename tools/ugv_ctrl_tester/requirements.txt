@@ -1,0 +1,9 @@
+# ugv_ctrl_tester — Python 依赖
+# 注意：本工具复用 tools/ugv_data_collector 中的 robots/ 和 teleop/ 模块，
+#       安装此文件即可满足全部运行依赖（无需额外安装 ugv_data_collector 的依赖）。
+
+pyserial>=3.5
+opencv-python>=4.5.0
+numpy>=1.21.0
+evdev>=1.3.0
+PyYAML>=6.0

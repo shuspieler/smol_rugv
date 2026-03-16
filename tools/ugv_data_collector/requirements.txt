@@ -1,0 +1,10 @@
+# UGV Data Collector — Python Dependencies
+#
+# 说明：lerobot 从本地 ref_code/ 引入，无需在此安装
+# 安装方式：pip install -r requirements.txt
+
+pyserial>=3.5
+opencv-python>=4.5.0
+numpy>=1.21.0
+pynput>=1.7.0
+PyYAML>=6.0

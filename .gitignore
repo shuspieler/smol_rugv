@@ -26,6 +26,10 @@ Thumbs.db
 # 但如果你修改成硬编码 token, 请取消下一行注释
 # .vscode/mcp.json
 
+# ROS2 colcon build outputs
+install/
+log/
+
 # Logs
 *.log
 logs/

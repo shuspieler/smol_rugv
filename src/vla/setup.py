@@ -22,7 +22,7 @@ setup(
     maintainer_email='user@todo.todo',
     description='The vla package for VLA (Vision-Language-Action) bridge and inference',
     license='TODO: License declaration',
-    tests_require=['pytest'],
+    extras_require={'test': ['pytest']},
     entry_points={
         'console_scripts': [
             'vla_bridge_node = vla.vla_bridge_node:main',

@@ -6,10 +6,8 @@ class InputMapper:
     Maps raw ROS data (from SharedBuffer) to the feature dictionary expected by LeRobot.
     """
     def __init__(self):
-        # TODO: These keys should ideally be configurable or inferred from the model config
-        # "observation.images.camera" is a common convention in LeRobot datasets
-        # Default to 'laptop' or 'camera' based on typical datasets, but allow override if needed
-        self.image_key = "observation.images.laptop" 
+        # image key must match the key used during data collection (ugv_data_collector camera_obs_key)
+        self.image_key = "observation.images.camera"
         self.state_key = "observation.state"
         self.task_key = "task"
 

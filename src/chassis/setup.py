@@ -22,11 +22,11 @@ setup(
     maintainer_email='dudu@todo.todo',
     description='TODO: Package description',
     license='TODO: License declaration',
-    tests_require=['pytest'],
+    extras_require={'test': ['pytest']},
     entry_points={
         'console_scripts': [
-            'ugv_bringup = chassis/ugv_bringup.ugv_bringup:main',
-            'ugv_driver = chassis/ugv_bringup.ugv_driver:main',
+            'ugv_bringup = chassis.ugv_bringup:main',
+            'ugv_driver = chassis.ugv_driver:main',
         ],
     },
 )

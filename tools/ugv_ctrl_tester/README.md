@@ -14,7 +14,7 @@
 | 图片采样存储 | 每 N 秒（默认 5s）保存一张摄像头 JPEG |
 | 控制日志记录 | 每 N 秒（默认 1s）追加一行到 `ctrl_log.csv` |
 | 终端实时状态 | 原地刷新显示速度指令、底盘反馈、电压、速度档 |
-| 无 LeRobot 依赖 | 完全独立，仅用 pyserial / opencv / pynput |
+| 无 LeRobot 依赖 | 完全独立，仅用 pyserial / opencv / evdev |
 
 ---
 
@@ -122,4 +122,4 @@ output/
 | Episode 管理 | 无 | 有 |
 | 适用阶段 | 硬件调试、效果验证 | 正式数据采集 |
 
-代码层面：`ctrl_test.py` 直接复用 `ugv_data_collector` 的 `robots/` 和 `teleop/` 模块，无重复实现。
+代码层面：`ctrl_test.py` 复用 `ugv_data_collector` 的 `robots/` 与 `config/`；键盘控制使用本工具内置 `EvdevKeyboard`（并与 `ugv_data_collector` 的 evdev 控制逻辑保持一致）。

@@ -1,10 +1,17 @@
 # UGV Data Collector — Python Dependencies
 #
-# 说明：lerobot 从本地 ref_code/ 引入，无需在此安装
-# 安装方式：pip install -r requirements.txt
+# LeRobot 框架（核心）
+lerobot>=0.4.0
 
+# 硬件和数据处理
 pyserial>=3.5
 opencv-python>=4.5.0
 numpy>=1.21.0
-pynput>=1.7.0
+evdev>=1.3.0
 PyYAML>=6.0
+
+# LeRobot 隐式依赖
+pandas>=1.5.0
+
+# 可选：若需要 SmolVLA 训练，单独安装 lerobot[smolvla]
+# 或整合命令：pip install "lerobot[smolvla]" -r requirements.txt

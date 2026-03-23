@@ -1,3 +1,3 @@
-from .keyboard_teleop import KeyboardUGVTeleop
+from .evdev_teleop import EvdevUGVTeleop
 
-__all__ = ["KeyboardUGVTeleop"]
+__all__ = ["EvdevUGVTeleop"]

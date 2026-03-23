@@ -25,9 +25,15 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _PROJECT_ROOT = os.path.abspath(os.path.join(_SCRIPT_DIR, "../.."))
-_LEROBOT_SRC = os.environ.get("LEROBOT_SRC") or os.path.join(
-    _PROJECT_ROOT, "ref_code", "lerobot-main (SmolVLA)", "src"
-)
+
+# 可选的本地 LeRobot 开发路径（仅当需要修改 LeRobot 源码时设置）
+_LEROBOT_SRC = os.environ.get("LEROBOT_SRC", None)
+
+# 如果显式指定了本地路径但不存在，记录警告
+if _LEROBOT_SRC and not os.path.exists(_LEROBOT_SRC):
+    logger_init = logging.getLogger("record")
+    logger_init.warning(f"LEROBOT_SRC 指向的路径不存在: {_LEROBOT_SRC}")
+    _LEROBOT_SRC = None
 
 # 所有重量级 import（cv2, numpy, lerobot, robots, teleop）延迟到 run_recording() 内部执行，
 # 以保证 `python record.py --help` 在依赖未完整安装时也能正常工作。
@@ -54,27 +60,26 @@ def build_lerobot_features(
     返回符合 LeRobot 格式要求的 features 字典。
 
     LeRobot features 格式：
-        {key: {"dtype": str, "shape": list[int], "names": dict | list | None}}
+        {key: {"dtype": str, "shape": tuple[int, ...], "names": dict | list | None}}
 
-    我们的特征：
-        observation.state : float32, shape [2], dims=[vx, wz]
-        action            : float32, shape [2], dims=[vx_cmd, wz_cmd]
-        observation.images.camera : video, shape [H, W, 3]
+    注意：shape 必须使用 tuple 而非 list，因为 LeRobotDataset.create() 不会
+    像 load_info() 那样自动将 list 转为 tuple，导致 validate_frame() 中
+    numpy.shape (tuple) 与 features.shape (list) 比较失败。
     """
     return {
         "observation.state": {
             "dtype": "float32",
-            "shape": [2],
+            "shape": (2,),
             "names": ["x.vel", "w.vel"],
         },
         "action": {
             "dtype": "float32",
-            "shape": [2],
+            "shape": (2,),
             "names": ["x.vel", "w.vel"],
         },
         camera_key: {
             "dtype": "video",
-            "shape": [camera_h, camera_w, 3],
+            "shape": (camera_h, camera_w, 3),
             "names": ["height", "width", "channel"],
         },
     }
@@ -93,9 +98,12 @@ def run_recording(args: argparse.Namespace) -> None:
       4. 保存并（可选）上传
     """
     # --- 0. 延迟导入重量级依赖 ---
-    # 注入 LeRobot 路径
-    if os.path.exists(_LEROBOT_SRC) and _LEROBOT_SRC not in sys.path:
-        sys.path.insert(0, _LEROBOT_SRC)
+    # 如果显式指定了本地 LeRobot 源码，优先使用
+    if _LEROBOT_SRC:
+        if _LEROBOT_SRC not in sys.path:
+            sys.path.insert(0, _LEROBOT_SRC)
+        logger.info(f"Using local LeRobot from: {_LEROBOT_SRC}")
+    # 否则使用通过 pip 安装的 lerobot（默认行为）
 
     # 将本工具目录加入 sys.path，使 `from robots import ...` 可用
     if _SCRIPT_DIR not in sys.path:
@@ -105,12 +113,14 @@ def run_recording(args: argparse.Namespace) -> None:
         import numpy as np
         from lerobot.datasets.lerobot_dataset import LeRobotDataset
         from robots import UGVRover, UGVRoverConfig
-        from teleop import KeyboardUGVTeleop
+        from teleop import EvdevUGVTeleop
     except ImportError as e:
         logger.error(f"Failed to import required modules: {e}")
-        logger.error(f"  LEROBOT_SRC = {_LEROBOT_SRC}")
-        logger.error("  Run: pip install -r requirements.txt")
-        logger.error("  Ensure ref_code/lerobot-main (SmolVLA)/src/lerobot/ exists.")
+        if _LEROBOT_SRC:
+            logger.error(f"  LEROBOT_SRC = {_LEROBOT_SRC}")
+        logger.error("  Run: python -m pip install -r requirements.txt")
+        if not _LEROBOT_SRC:
+            logger.error("  Or: python -m pip install lerobot")
         sys.exit(1)
 
     # --- 1. 加载配置 ---
@@ -158,11 +168,6 @@ def run_recording(args: argparse.Namespace) -> None:
     logger.info("Robot connected.")
 
     # --- 3. 初始化键盘遥控 ---
-    episode_end_event = [False]   # 使用列表以支持闭包修改
-
-    def _on_episode_end():
-        episode_end_event[0] = True
-
     quit_event = [False]
 
     def _on_quit():
@@ -173,19 +178,19 @@ def run_recording(args: argparse.Namespace) -> None:
     if os.path.exists(args.config):
         import yaml
         with open(args.config) as f:
-            _cfg_raw = yaml.safe_load(f)
+            _cfg_raw = yaml.safe_load(f) or {}
 
     teleop_cfg_raw = _cfg_raw.get("teleop", {})
-    teleop = KeyboardUGVTeleop(
+    teleop = EvdevUGVTeleop(
         max_linear=teleop_cfg_raw.get("max_linear", 0.5),
         max_angular=teleop_cfg_raw.get("max_angular", 1.5),
         speed_scales=teleop_cfg_raw.get("speed_scales"),
         default_scale_idx=teleop_cfg_raw.get("default_scale_idx", 1),
-        on_episode_end=_on_episode_end,
         on_quit=_on_quit,
+        device_path=args.keyboard_device,
     )
     teleop.connect()
-    logger.info("Keyboard teleop connected.")
+    logger.info("Evdev keyboard teleop connected (WASD/QE/Space/Esc).")
 
     # --- 4. 创建 LeRobot Dataset ---
     features = build_lerobot_features(
@@ -194,15 +199,35 @@ def run_recording(args: argparse.Namespace) -> None:
         camera_w=config.camera.width,
     )
 
-    if output_dir.exists():
+    # 对于 dry_run 模式，总是创建新数据集（不尝试恢复）
+    if output_dir.exists() and not config.dry_run:
         logger.warning(
             f"Dataset directory already exists at {output_dir}. "
             "Will attempt to resume recording."
         )
-        dataset = LeRobotDataset(repo_id=repo_id, root=output_dir)
-        existing_episodes = dataset.meta.total_episodes
-        logger.info(f"Resuming from episode {existing_episodes}")
+        try:
+            dataset = LeRobotDataset(repo_id=repo_id, root=output_dir)
+            existing_episodes = dataset.meta.total_episodes
+            logger.info(f"Resuming from episode {existing_episodes}")
+        except Exception as e:
+            logger.warning(f"Failed to resume dataset: {e}. Creating new dataset instead.")
+            import shutil
+            shutil.rmtree(output_dir, ignore_errors=True)
+            dataset = LeRobotDataset.create(
+                repo_id=repo_id,
+                fps=fps,
+                features=features,
+                robot_type="ugv_rover",
+                root=output_dir,
+            )
+            existing_episodes = 0
+            logger.info("New dataset created.")
     else:
+        if output_dir.exists() and config.dry_run:
+            logger.info("Dry run mode: clearing dataset directory for fresh test.")
+            import shutil
+            shutil.rmtree(output_dir, ignore_errors=True)
+        
         dataset = LeRobotDataset.create(
             repo_id=repo_id,
             fps=fps,
@@ -226,7 +251,6 @@ def run_recording(args: argparse.Namespace) -> None:
             reset_time_s=reset_time_s,
             fps=fps,
             camera_key=config.camera_obs_key,
-            episode_end_event=episode_end_event,
             quit_event=quit_event,
         )
     finally:
@@ -255,7 +279,6 @@ def _record_all_episodes(
     reset_time_s: float,
     fps: int,
     camera_key: str,
-    episode_end_event: list,
     quit_event: list,
 ) -> None:
     """逐 Episode 运行采集循环"""
@@ -267,7 +290,7 @@ def _record_all_episodes(
             logger.info("Quit signal received. Stopping.")
             break
 
-        _end_hint = "Enter=结束Episode, Esc=退出"
+        _end_hint = "Esc=退出"
         logger.info(
             f"\n{'='*50}\n"
             f"  Episode {ep_idx + 1}/{existing_episodes + num_episodes}\n"
@@ -277,20 +300,17 @@ def _record_all_episodes(
             f"{'='*50}"
         )
 
-        # 重置 episode 结束标志
-        episode_end_event[0] = False
-
         # 采集当前 Episode
         frame_count = _record_one_episode(
             robot=robot,
             teleop=teleop,
             dataset=dataset,
             single_task=single_task,
+            episode_index=ep_idx,
             episode_time_s=episode_time_s,
             fps=fps,
             period=period,
             camera_key=camera_key,
-            episode_end_event=episode_end_event,
             quit_event=quit_event,
         )
 
@@ -311,17 +331,15 @@ def _record_all_episodes(
             logger.info(
                 f"\nReset phase: {reset_time_s}s to reset robot to start position.\n"
                 "  Robot will not record during this time.\n"
-                "  Press Enter to skip reset and start next episode immediately."
+                "  Press Esc to stop recording immediately."
             )
             _wait_reset(
                 robot=robot,
                 teleop=teleop,
                 reset_time_s=reset_time_s,
                 period=period,
-                episode_end_event=episode_end_event,
                 quit_event=quit_event,
             )
-            episode_end_event[0] = False
 
 
 def _record_one_episode(
@@ -329,11 +347,11 @@ def _record_one_episode(
     teleop,
     dataset,
     single_task: str,
+    episode_index: int,
     episode_time_s: float,
     fps: int,
     period: float,
     camera_key: str,
-    episode_end_event: list,
     quit_event: list,
 ) -> int:
     """
@@ -352,9 +370,6 @@ def _record_one_episode(
         if elapsed >= episode_time_s:
             logger.info(f"Episode time limit reached ({episode_time_s}s).")
             break
-        if episode_end_event[0]:
-            logger.info("Episode ended by user (Enter key).")
-            break
         if quit_event[0]:
             break
 
@@ -372,6 +387,7 @@ def _record_one_episode(
         #    - action: [vx_cmd, wz_cmd] 操作员指令
         #    - camera_key: RGB 图像
         #    - task: 任务描述（字符串）
+        # 注意：LeRobot 会自动添加 timestamp, frame_index, episode_index 等元数据
         frame = {
             "observation.state": np.array(
                 [obs["x.vel"], obs["w.vel"]], dtype=np.float32
@@ -410,17 +426,15 @@ def _wait_reset(
     teleop,
     reset_time_s: float,
     period: float,
-    episode_end_event: list,
     quit_event: list,
 ) -> None:
     """
     重置阶段：操作员控制小车回到起点，不录制数据。
-    按 Enter 可提前跳过重置。
+    按 Esc 可退出采集。
     """
-    episode_end_event[0] = False
     start = time.perf_counter()
     while time.perf_counter() - start < reset_time_s:
-        if episode_end_event[0] or quit_event[0]:
+        if quit_event[0]:
             break
         # 在重置阶段也允许遥控（方便回到起点）
         action = teleop.get_action()
@@ -462,6 +476,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--reset_time_s", type=float, default=None, help="Episode 间重置时间（秒）")
     parser.add_argument("--output_dir", default=None, help="数据集输出目录")
     parser.add_argument("--push_to_hub", action="store_true", help="采集完成后上传到 HuggingFace Hub")
+    parser.add_argument(
+        "--keyboard_device",
+        default=None,
+        help="evdev 键盘设备路径（如 /dev/input/event3），为空时自动发现",
+    )
 
     args = parser.parse_args()
 
@@ -469,7 +488,7 @@ def parse_args() -> argparse.Namespace:
     if os.path.exists(args.config):
         import yaml
         with open(args.config) as f:
-            raw = yaml.safe_load(f)
+            raw = yaml.safe_load(f) or {}
         ds = raw.get("dataset", {})
 
         if args.repo_id is None:

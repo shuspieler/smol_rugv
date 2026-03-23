@@ -2,6 +2,8 @@
 
 基于 LeRobot 框架，为 UGV Rover 小车（Waveshare Jetson Orin 版）采集示范数据集的独立工具。
 
+键盘控制复用 `ugv_ctrl_tester` 已验证方案：默认使用 Linux `evdev` 直读 `/dev/input/event*`，适配 Jetson 直连键盘、SSH 和 VS Code 终端场景。
+
 **不依赖 ROS2**，可直接运行在 Jetson 上。支持**键盘**遥控。
 
 详细设计说明见 [DESIGN.md](DESIGN.md)。
@@ -10,22 +12,28 @@
 
 ## 快速开始
 
-### 1. 安装依赖
+### 1. 确保 LeRobot 已安装
+
+本工具基于 LeRobot 框架。若尚未安装，运行以下命令：
+
+```bash
+# 推荐：使用 python -m pip 确保安装到当前 Python 环境
+python -m pip install lerobot
+
+# 若需要完整的 SmolVLA 训练功能，可安装扩展包
+python -m pip install "lerobot[smolvla]"
+```
+
+> **环境提示**：若使用 conda 环境，先激活对应环境（如 `conda activate lerobot`），再运行上述命令。
+
+### 2. 安装本工具依赖
 
 ```bash
 cd tools/ugv_data_collector
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 ```
 
-### 2. 确认 lerobot 路径可用
-
-本工具通过相对路径引用 `ref_code/lerobot-main (SmolVLA)/src`，确保目录结构完整：
-```
-smol_rugv/
-├── ref_code/
-│   └── lerobot-main (SmolVLA)/src/lerobot/  ← 必须存在
-└── tools/ugv_data_collector/
-```
+> 若 requirements.txt 中已包含 `lerobot`，可直接运行。否则上一步已自动包含。
 
 ### 3. 修改配置
 
@@ -44,6 +52,7 @@ python record.py
 python record.py \
   --serial_port /dev/ttyCH341USB0 \
   --camera_index 0 \
+  --keyboard_device /dev/input/event3 \
   --repo_id myname/ugv-follow-task \
   --single_task "Follow the person" \
   --num_episodes 20 \
@@ -68,8 +77,9 @@ python record.py --dry_run
 | `Q` | 提高速度档 |
 | `E` | 降低速度档 |
 | `Space` | 急停 |
-| `Enter` | 结束当前 Episode，进入下一个 |
 | `Esc` / `Ctrl+C` | 保存并退出 |
+
+> 键盘设备默认自动发现；如有多设备，使用 `--keyboard_device /dev/input/eventN` 明确指定。
 
 ---
 
@@ -94,20 +104,40 @@ datasets/
 
 ## 采集完成后的训练与部署
 
-1. **训练**（在配置较好的 PC / 服务器上）：
-   ```bash
-   cd ref_code/lerobot-main\ \(SmolVLA\)
-   lerobot-train \
-     --policy.type=smolvla \
-     --dataset.repo_id=myname/ugv-follow-task \
-     --output_dir=./outputs/smolvla_ugv
-   ```
+### 训练（在配置较好的 PC / 服务器上）
 
-2. **部署**：修改主工程 `src/vla/vla/inference/preprocess.py`：
-   ```python
-   # 将此行
-   self.image_key = "observation.images.laptop"
-   # 改为
-   self.image_key = "observation.images.camera"
-   ```
-   并在 `src/smol_bringup/config/model.yaml` 中设置模型路径。
+若已安装 `lerobot[smolvla]`，可直接运行：
+
+```bash
+# 方式 1：直接使用 lerobot-train 命令
+lerobot-train \
+  policy.type=smolvla \
+  dataset.repo_id=myname/ugv-follow-task \
+  output_dir=./outputs/smolvla_ugv
+
+# 方式 2：若上述命令不可用，使用 Python 模块调用
+python -m lerobot.scripts.train \
+  policy.type=smolvla \
+  dataset.repo_id=myname/ugv-follow-task \
+  output_dir=./outputs/smolvla_ugv
+```
+
+### 部署（回到主工程）
+
+修改主工程的两个文件：
+
+**1. `src/vla/vla/inference/preprocess.py`**
+```python
+# 将此行
+self.image_key = "observation.images.laptop"
+# 改为
+self.image_key = "observation.images.camera"
+```
+
+**2. `src/smol_bringup/config/model.yaml`**
+```yaml
+# 设置本地或远程模型路径
+model_id: "local:///path/to/smolvla_ugv"
+# 或上传到 HuggingFace 后使用
+# model_id: "myname/smolvla-ugv-policy"
+```

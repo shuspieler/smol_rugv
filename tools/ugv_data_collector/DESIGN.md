@@ -1,5 +1,22 @@
 # UGV 数据采集工具 — 需求与设计文档
 
+## 零、环境与依赖
+
+**前置要求**：
+- Python >= 3.10（推荐使用 conda 环境隔离）
+- LeRobot 框架（v0.4.0+）：
+  ```bash
+  python -m pip install lerobot
+  # 若同时需要 SmolVLA 训练功能
+  python -m pip install "lerobot[smolvla]"
+  ```
+
+**本工具无需额外克隆源码**，通过 pip 安装的 LeRobot 库自动包含所需的数据集操作、采集循环等接口。
+
+若需要修改 LeRobot 源码进行二次开发，可选择本地克隆方案（见 README.md 中的可选项）。
+
+---
+
 ## 一、背景与目标
 
 本工具为 `smol_rugv` 项目的独立数据采集模块，**不依赖 ROS2**，纯 Python 运行。
@@ -22,7 +39,7 @@
 | F2 | 同步采集图像 | USB 摄像头，640×480 @ 30fps，RGB |
 | F3 | 同步采集底盘状态 | 串口读取 ESP32 反馈（线速度 vx、角速度 wz） |
 | F4 | 记录操作员动作 | 遥控输入映射为 [vx, wz] 存入数据集 |
-| F5 | 分 Episode 管理 | 按 Enter/A 结束当前 Episode，自动进入下一个 |
+| F5 | 分 Episode 管理 | 按设定时长结束当前 Episode，自动进入下一个 |
 | F6 | 本地存储数据集 | 保存为 LeRobotDataset 格式到本地路径 |
 | F7 | 可选上传 HF Hub | 采集完毕后可选择 push 到 HuggingFace |
 
@@ -41,7 +58,7 @@
 键盘输入 (WASD)
           │
           ▼
- KeyboardUGVTeleop
+ EvdevUGVTeleop
   .get_action()
           │  action = {"x.vel": float, "w.vel": float}
           ▼
@@ -116,7 +133,6 @@
 | `Q` | 提高速度档 |
 | `E` | 降低速度档 |
 | `Space` | 急停（发送零速度） |
-| `Enter` | 结束当前 Episode |
 | `Esc` / `Ctrl+C` | 退出采集 |
 
 速度档（scale）：`[0.1, 0.2, 0.3, 0.5, 0.7, 1.0]`，默认从第 2 档（0.2）开始。
@@ -138,7 +154,7 @@ tools/ugv_data_collector/
 │   └── ugv_rover.py             # UGVRover(Robot) — 适配 LeRobot 接口
 ├── teleop/
 │   ├── __init__.py
-│   ├── keyboard_teleop.py       # KeyboardUGVTeleop — 键盘遥控器
+│   ├── evdev_teleop.py          # EvdevUGVTeleop — 键盘遥控器（复用 ugv_ctrl_tester 可行方案）
 └── record.py                    # 主入口脚本
 ```
 
@@ -201,11 +217,17 @@ model_id: "local:///path/to/smolvla_ugv_finetuned"
 
 ## 九、依赖说明
 
-| 依赖 | 版本要求 | 用途 |
-|------|---------|------|
-| lerobot | 从 `ref_code/` 本地 | 数据集格式、record_loop、Robot 基类 |
-| pyserial | >= 3.5 | 串口通信 |
-| opencv-python | >= 4.5 | 摄像头读取 |
-| numpy | >= 1.21 | 数据处理 |
-| pynput | >= 1.7 | 键盘监听 |
-| PyYAML | >= 6.0 | 配置文件读取 |
+| 依赖 | 版本要求 | 安装方式 | 用途 |
+|------|---------|--------|------|
+| lerobot | >= 0.4.0 | `pip install lerobot` 或 `pip install "lerobot[smolvla]"` | 数据集格式、record_loop、Robot 基类 |
+| pyserial | >= 3.5 | `pip install pyserial` | 串口通信 |
+| opencv-python | >= 4.5 | `pip install opencv-python` | 摄像头读取 |
+| numpy | >= 1.21 | 自动依赖（lerobot 包含） | 数据处理 |
+| evdev | >= 1.3 | `pip install evdev` | 键盘监听（直读 /dev/input/event*） |
+| PyYAML | >= 6.0 | `pip install PyYAML` | 配置文件读取 |
+
+> **推荐安装命令**：
+> ```bash
+> python -m pip install lerobot pyserial opencv-python evdev PyYAML
+> ```
+> 或一次性安装：`python -m pip install -r requirements.txt`

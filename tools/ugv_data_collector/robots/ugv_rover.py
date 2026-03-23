@@ -120,6 +120,7 @@ class UGVRover:
         # 命令发送队列（异步写串口，避免阻塞 control loop）
         self._cmd_queue: queue.Queue = queue.Queue(maxsize=10)
         self._cmd_thread: threading.Thread | None = None
+        self._cmd_stop_sentinel = object()
 
     # ------------------------------------------------------------------
     # 接口属性
@@ -247,7 +248,7 @@ class UGVRover:
         if self._serial_thread:
             self._serial_thread.join(timeout=2.0)
         # 清空命令队列并停止发送线程
-        self._cmd_queue.put(None)  # 哨兵值，通知线程退出
+        self._enqueue_stop_sentinel()
         if self._cmd_thread:
             self._cmd_thread.join(timeout=2.0)
 
@@ -337,12 +338,8 @@ class UGVRover:
         持续读取串口，解析 T:1001 反馈包，计算并更新 _vx / _wz。
         在 connect() 启动，直到 _serial_stop 被触发。
         """
-        buf = bytearray()
         while not self._serial_stop.is_set():
             try:
-                # 读取可用字节
-                waiting = getattr(self._ser, "in_waiting", 0)
-                n = max(1, min(512, waiting))
                 chunk = self._ser.readline()
                 if not chunk:
                     continue
@@ -413,13 +410,26 @@ class UGVRover:
         """消费 _cmd_queue 并写入串口，确保串口写操作串行化"""
         while True:
             payload = self._cmd_queue.get()
-            if payload is None:  # 退出哨兵
+            if payload is self._cmd_stop_sentinel:  # 退出哨兵
                 break
             try:
                 data = json.dumps(payload) + "\n"
                 self._ser.write(data.encode("utf-8"))
             except Exception as exc:
                 logger.warning(f"Serial write error: {exc}")
+
+    def _enqueue_stop_sentinel(self) -> None:
+        """非阻塞放入退出哨兵，避免 disconnect 在队列满时卡住。"""
+        while True:
+            try:
+                self._cmd_queue.put_nowait(self._cmd_stop_sentinel)
+                return
+            except queue.Full:
+                try:
+                    self._cmd_queue.get_nowait()
+                except queue.Empty:
+                    # 理论上不会发生；让出调度后重试
+                    time.sleep(0.001)
 
     def _enqueue_cmd(self, payload: dict) -> None:
         """非阻塞地将命令放入发送队列（队列满时丢弃最旧命令）"""

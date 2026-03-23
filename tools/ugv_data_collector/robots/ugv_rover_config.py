@@ -47,7 +47,7 @@ class UGVRoverConfig:
         """从 ugv_config.yaml 加载配置"""
         import yaml
         with open(path) as f:
-            raw = yaml.safe_load(f)
+            raw = yaml.safe_load(f) or {}
 
         serial_raw = raw.get("serial", {})
         camera_raw = raw.get("camera", {})
@@ -67,4 +67,7 @@ class UGVRoverConfig:
                 height=camera_raw.get("height", 480),
                 fps=camera_raw.get("fps", 30),
             ),
+            camera_obs_key=raw.get("camera_obs_key", "observation.images.camera"),
+            dry_run=raw.get("dry_run", False),
+            robot_id=raw.get("robot_id", "ugv_rover"),
         )

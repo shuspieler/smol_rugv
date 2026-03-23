@@ -15,4 +15,8 @@
 15→15→- 已完成 Sprint 5：建立 smol_bringup 启动包与系统参数分层
 16→16→- 已完成 Sprint 5：建立系统级启动顺序与降级策略验证
 - 已同步项目文档与默认配置：底盘串口切换为 CH341 USB 转串口 `/dev/ttyCH341USB0`
+- 已优化 tools/ugv_data_collector 稳定性：增强 YAML 配置容错、修复断连时命令队列潜在阻塞、补强键盘速度档位线程安全与参数校验
+- 已将 ugv_data_collector 键盘控制链路切换为 ugv_ctrl_tester 已验证的 evdev 方案（支持 Jetson 直连键盘/无桌面场景），并新增 --keyboard_device 参数
+- 已将 ugv_data_collector 控制状态机对齐为与 ugv_ctrl_tester 零差异（同 evdev 按键处理、同速度向量更新、移除 Enter 提前结束逻辑）
+- 已完成 ugv_data_collector 收尾清理：移除控制链路残留兼容参数与 Enter 文案，确保文档与运行行为一致
 </toolcall_result>

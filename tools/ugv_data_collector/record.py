@@ -7,6 +7,7 @@ record.py — UGV 数据采集主入口
 用法：
     python record.py                          # 使用 config/ugv_config.yaml 的默认设置
     python record.py --dry_run               # 测试模式，不连接真实硬件
+    python record.py --manual_control        # 手动模式：Enter 开始/结束每个 episode
     python record.py --serial_port /dev/ttyCH341USB0 --repo_id myname/ugv-task --num_episodes 20
 
 完整参数说明见 README.md 和 DESIGN.md。
@@ -17,6 +18,7 @@ import argparse
 import logging
 import os
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -180,6 +182,14 @@ def run_recording(args: argparse.Namespace) -> None:
         with open(args.config) as f:
             _cfg_raw = yaml.safe_load(f) or {}
 
+    # enter_event: 手动模式下的 Enter 键共享标志，evdev 回调设置它
+    _enter_event = [False]
+    _enter_lock = threading.Lock()
+
+    def _on_enter():
+        with _enter_lock:
+            _enter_event[0] = True
+
     teleop_cfg_raw = _cfg_raw.get("teleop", {})
     teleop = EvdevUGVTeleop(
         max_linear=teleop_cfg_raw.get("max_linear", 0.5),
@@ -187,6 +197,7 @@ def run_recording(args: argparse.Namespace) -> None:
         speed_scales=teleop_cfg_raw.get("speed_scales"),
         default_scale_idx=teleop_cfg_raw.get("default_scale_idx", 1),
         on_quit=_on_quit,
+        on_enter=_on_enter,
         device_path=args.keyboard_device,
     )
     teleop.connect()
@@ -252,6 +263,9 @@ def run_recording(args: argparse.Namespace) -> None:
             fps=fps,
             camera_key=config.camera_obs_key,
             quit_event=quit_event,
+            enter_event=_enter_event,
+            enter_lock=_enter_lock,
+            manual_control=args.manual_control,
         )
     finally:
         # --- 6. 清理与保存 ---
@@ -280,25 +294,57 @@ def _record_all_episodes(
     fps: int,
     camera_key: str,
     quit_event: list,
+    enter_event: list | None = None,
+    enter_lock=None,
+    manual_control: bool = False,
 ) -> None:
     """逐 Episode 运行采集循环"""
 
     period = 1.0 / fps
+
+    def _reset_enter():
+        """清除 enter_event，准备下一次等待"""
+        if enter_event is not None and enter_lock is not None:
+            with enter_lock:
+                enter_event[0] = False
+
+    def _wait_enter():
+        """阻塞等待 Enter 键被按下（或 Esc 退出）"""
+        while not (enter_event and enter_event[0]) and not quit_event[0]:
+            action = teleop.get_action()
+            robot.send_action(action)
+            time.sleep(period)
 
     for ep_idx in range(existing_episodes, existing_episodes + num_episodes):
         if quit_event[0]:
             logger.info("Quit signal received. Stopping.")
             break
 
-        _end_hint = "Esc=退出"
-        logger.info(
-            f"\n{'='*50}\n"
-            f"  Episode {ep_idx + 1}/{existing_episodes + num_episodes}\n"
-            f"  Task: {single_task}\n"
-            f"  Speed scale: {teleop.current_scale:.1f} ({teleop.current_scale_idx + 1}/{len(teleop.speed_scales)})\n"
-            f"  {_end_hint}\n"
-            f"{'='*50}"
-        )
+        # --- 手动模式：等待 Enter 开始录制 ---
+        if manual_control:
+            _reset_enter()  # 确保上一次 Enter 不影响本次等待
+            logger.info(
+                f"\n{'='*50}\n"
+                f"  Episode {ep_idx + 1}/{existing_episodes + num_episodes}\n"
+                f"  Task: {single_task}\n"
+                f"  Speed scale: {teleop.current_scale:.1f} ({teleop.current_scale_idx + 1}/{len(teleop.speed_scales)})\n"
+                f"  [手动模式] 移动机器人到起始位置，按 Enter 开始录制 | Esc=退出\n"
+                f"{'='*50}"
+            )
+            _wait_enter()
+            if quit_event[0]:
+                break
+            logger.info("  ▶ 开始录制... 完成后再按 Enter 结束本 episode")
+            _reset_enter()  # 清除刚才的 Enter，准备等待结束信号
+        else:
+            logger.info(
+                f"\n{'='*50}\n"
+                f"  Episode {ep_idx + 1}/{existing_episodes + num_episodes}\n"
+                f"  Task: {single_task}\n"
+                f"  Speed scale: {teleop.current_scale:.1f} ({teleop.current_scale_idx + 1}/{len(teleop.speed_scales)})\n"
+                f"  Esc=退出\n"
+                f"{'='*50}"
+            )
 
         # 采集当前 Episode
         frame_count = _record_one_episode(
@@ -312,6 +358,7 @@ def _record_all_episodes(
             period=period,
             camera_key=camera_key,
             quit_event=quit_event,
+            enter_end_event=enter_event if manual_control else None,
         )
 
         if frame_count == 0:
@@ -327,7 +374,8 @@ def _record_all_episodes(
             break
 
         # 重置阶段（让操作员回到初始位置）
-        if ep_idx < existing_episodes + num_episodes - 1 and reset_time_s > 0:
+        # 手动模式下跳过计时重置（下一个 episode 开始前已有 Enter 等待作为缓冲）
+        if not manual_control and ep_idx < existing_episodes + num_episodes - 1 and reset_time_s > 0:
             logger.info(
                 f"\nReset phase: {reset_time_s}s to reset robot to start position.\n"
                 "  Robot will not record during this time.\n"
@@ -353,10 +401,12 @@ def _record_one_episode(
     period: float,
     camera_key: str,
     quit_event: list,
+    enter_end_event: list | None = None,
 ) -> int:
     """
     执行单个 Episode 的采集。
     返回实际采集的帧数。
+    enter_end_event: 若不为 None（手动模式），按 Enter 结束本 episode，忽略时间限制。
     """
     import numpy as np  # 延迟导入，与 run_recording 中保持一致
     frame_count = 0
@@ -367,9 +417,16 @@ def _record_one_episode(
 
         # 检查终止条件
         elapsed = loop_start - start_time
-        if elapsed >= episode_time_s:
-            logger.info(f"Episode time limit reached ({episode_time_s}s).")
-            break
+        if enter_end_event is not None:
+            # 手动模式：Enter 键结束
+            if enter_end_event[0]:
+                logger.info(f"Episode ended by Enter key ({elapsed:.1f}s, {frame_count} frames).")
+                break
+        else:
+            # 自动模式：时间到结束
+            if elapsed >= episode_time_s:
+                logger.info(f"Episode time limit reached ({episode_time_s}s).")
+                break
         if quit_event[0]:
             break
 
@@ -463,6 +520,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--serial_port", default=None, help="串口设备路径，如 /dev/ttyCH341USB0")
     parser.add_argument("--camera_index", type=int, default=None, help="摄像头 /dev/videoN 序号")
     parser.add_argument("--dry_run", action="store_true", help="跳过真实串口和摄像头（调试用）")
+    parser.add_argument(
+        "--manual_control",
+        action="store_true",
+        help="手动控制录制：每个 episode 开始前等待 Enter 键，录制中再按 Enter 结束（忽略时间限制）",
+    )
 
     # -- 数据集参数（覆盖 yaml） --
     parser.add_argument(

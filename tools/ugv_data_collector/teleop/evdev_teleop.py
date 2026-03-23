@@ -18,10 +18,11 @@ class EvdevUGVTeleop:
 
     # Linux input key codes
     _KEY_MAP = {
-        1: "esc",      # KEY_ESC
+        1:  "esc",     # KEY_ESC
         16: "q",       # KEY_Q
         17: "w",       # KEY_W
         18: "e",       # KEY_E
+        28: "enter",   # KEY_ENTER
         30: "a",       # KEY_A
         31: "s",       # KEY_S
         32: "d",       # KEY_D
@@ -35,6 +36,7 @@ class EvdevUGVTeleop:
         speed_scales: list[float] | None = None,
         default_scale_idx: int = DEFAULT_SCALE_IDX,
         on_quit: Callable[[], None] | None = None,
+        on_enter: Callable[[], None] | None = None,
         device_path: str | None = None,
     ):
         self._max_linear = max_linear
@@ -42,6 +44,7 @@ class EvdevUGVTeleop:
         self.speed_scales = speed_scales or DEFAULT_SPEED_SCALES
         self._scale_idx = default_scale_idx
         self.on_quit = on_quit or (lambda: None)
+        self.on_enter = on_enter or (lambda: None)
         self._device_path = device_path
         self._on_key_event = lambda key, direction: None
 
@@ -155,6 +158,11 @@ class EvdevUGVTeleop:
             if key == "esc":
                 self._stop.set()
                 self.on_quit()
+                self._on_key_event(key, "down")
+                return
+
+            if key == "enter":
+                self.on_enter()  # 调用不带锁，回调函数自己负责线程安全
                 self._on_key_event(key, "down")
                 return
 

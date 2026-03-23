@@ -45,10 +45,13 @@ python -m pip install -r requirements.txt
 ### 4. 开始采集
 
 ```bash
-# 键盘遥控
+# 默认：手动 Enter 控制每个 episode（推荐）
 python record.py
 
-# 使用命令行参数覆盖配置（优先级高于 yaml）
+# 自动定时模式（episode_time_s 到时自动结束）
+python record.py --auto
+
+# 使用命令行参数覆盖配置
 python record.py \
   --serial_port /dev/ttyCH341USB0 \
   --camera_index 0 \
@@ -57,6 +60,9 @@ python record.py \
   --single_task "Follow the person" \
   --num_episodes 20 \
   --episode_time_s 30
+
+# 关闭摄像头预览（默认开启，访问 http://<机器人IP>:8080/stream 查看）
+python record.py --no-preview
 
 # 测试模式（跳过真实串口和摄像头，验证流程）
 python record.py --dry_run
@@ -77,9 +83,22 @@ python record.py --dry_run
 | `Q` | 提高速度档 |
 | `E` | 降低速度档 |
 | `Space` | 急停 |
+| `Enter` | 开始录制 / 结束当前 episode（手动模式） |
 | `Esc` / `Ctrl+C` | 保存并退出 |
 
 > 键盘设备默认自动发现；如有多设备，使用 `--keyboard_device /dev/input/eventN` 明确指定。
+
+---
+
+## 摄像头预览
+
+录制时默认开启 MJPEG HTTP 预览流，在同局域网的浏览器打开：
+
+```
+http://<机器人IP>:8080/stream
+```
+
+启动后终端会打印完整地址。使用 `--no-preview` 关闭。
 
 ---
 
@@ -92,12 +111,19 @@ datasets/
 └── myname/
     └── ugv-follow-task/
         ├── data/
-        │   └── train/
-        │       └── episode_000000.parquet  # 观测 + 动作的标量数据
+        │   └── chunk-000/
+        │       ├── file-000.parquet   # 每个 episode：observation.state + action + 元数据
+        │       └── file-001.parquet
         ├── videos/
-        │   └── observation.images.camera_episode_000000.mp4
+        │   └── observation.images.camera/
+        │       └── chunk-000/
+        │           ├── file-000.mp4   # 每个 episode 的相机帧（AV1 压缩）
+        │           └── file-001.mp4
         └── meta/
-            └── info.json
+            ├── info.json              # 数据集配置（fps、features、路径模板）
+            ├── stats.json             # 各特征统计量（均值/标准差）
+            ├── tasks.parquet          # task_index → 任务描述映射
+            └── episodes/              # 每个 episode 的摘要信息
 ```
 
 ---

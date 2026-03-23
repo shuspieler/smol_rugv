@@ -39,9 +39,10 @@
 | F2 | 同步采集图像 | USB 摄像头，640×480 @ 30fps，RGB |
 | F3 | 同步采集底盘状态 | 串口读取 ESP32 反馈（线速度 vx、角速度 wz） |
 | F4 | 记录操作员动作 | 遥控输入映射为 [vx, wz] 存入数据集 |
-| F5 | 分 Episode 管理 | 按设定时长结束当前 Episode，自动进入下一个 |
+| F5 | 分 Episode 管理 | **默认**：Enter 键手动开始/结束；`--auto` 模式下按设定时长自动结束 |
 | F6 | 本地存储数据集 | 保存为 LeRobotDataset 格式到本地路径 |
 | F7 | 可选上传 HF Hub | 采集完毕后可选择 push 到 HuggingFace |
+| F8 | MJPEG 实时预览 | 部署 HTTP 流，浏览器访问 http://\<LAN-IP\>:8080/stream 查看实时画面 |
 
 ### 2.2 安全需求
 | # | 需求 | 说明 |
@@ -114,7 +115,7 @@
 ```json
 {"T": 1001, "L": ..., "R": ..., "ax": ..., "ay": ..., "az": ..., "gx": ..., "gy": ..., "gz": ..., "odl": ..., "odr": ..., "v": ...}
 ```
-- `odl`/`odr`: 左右轮里程计增量（tick）
+- `odl`/`odr`: 左右轮里程计增量（**cm**，ESP32 内部已由 tick 转换）
 - `gx`/`gy`/`gz`: 陀螺仪角速度（deg/s）
 - 由里程计增量 + 轮距参数计算 vx 和 wz
 
@@ -133,6 +134,7 @@
 | `Q` | 提高速度档 |
 | `E` | 降低速度档 |
 | `Space` | 急停（发送零速度） |
+| `Enter` | 开始录制 / 结束当前 episode（手动模式） |
 | `Esc` / `Ctrl+C` | 退出采集 |
 
 速度档（scale）：`[0.1, 0.2, 0.3, 0.5, 0.7, 1.0]`，默认从第 2 档（0.2）开始。
@@ -165,15 +167,20 @@ tools/ugv_data_collector/
 ```bash
 cd tools/ugv_data_collector
 
-# 键盘遥控（默认）
+# 默认：手动 Enter 控制录制（推荐）
 python record.py \
       --serial_port /dev/ttyCH341USB0 \
   --camera_index 0 \
   --repo_id myname/ugv-follow-task \
   --single_task "Follow the person" \
   --num_episodes 20 \
-  --episode_time_s 30 \
   --output_dir ./datasets
+
+# 自动定时模式（episode_time_s 到时自动结束）
+python record.py --auto --episode_time_s 30
+
+# 关闭摄像头预览（默认 http://<LAN-IP>:8080/stream）
+python record.py --no-preview
 
 # 测试模式（不连接真实硬件，用于调试）
 python record.py --dry_run

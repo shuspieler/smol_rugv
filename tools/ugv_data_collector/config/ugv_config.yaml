@@ -9,9 +9,9 @@ serial:
   baud: 115200
   timeout: 1.0
   # 底盘物理参数（用于从里程计增量计算速度反馈）
-  wheel_base: 0.235        # 轮距（m），根据实际测量填写
-  wheel_radius: 0.045      # 轮半径（m）
-  ticks_per_rev: 1320      # 编码器每圈脉冲数
+  wheel_base: 0.172        # 轮距/轨道宽度（m）——来自 ESP32 固件 TRACK_WIDTH（UGV Rover main_type:02）
+  wheel_radius: 0.040      # 轮半径（m）——来自 ESP32 固件 WHEEL_D/2 = 0.080/2（目前 Python 侧暂未使用，ESP32 已转换）
+  ticks_per_rev: 1650      # 编码器每圈脉冲数（halfQuad）——来自 ESP32 固件 ONE_CIRCLE_PLUSES（目前暂未使用）
 
 # --- 摄像头配置 ---
 camera:
@@ -26,7 +26,7 @@ teleop:
   max_angular: 1.5         # 最大角速度（rad/s）
   # 速度档位列表（实际速度 = max * scale）
   speed_scales: [0.1, 0.2, 0.3, 0.5, 0.7, 1.0]
-  default_scale_idx: 1     # 默认第 2 档（0.2）
+  default_scale_idx: 1    # 默认第 2 档（0.2）
 
 # --- LeRobot 数据集配置 ---
 dataset:

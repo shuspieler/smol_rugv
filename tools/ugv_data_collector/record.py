@@ -5,9 +5,9 @@ record.py — UGV 数据采集主入口
 使用键盘遥控 UGV Rover，将图像 + 状态 + 动作保存为 LeRobot 格式数据集。
 
 用法：
-    python record.py                          # 使用 config/ugv_config.yaml 的默认设置
+    python record.py                          # 默认：手动 Enter 控制每个 episode
+    python record.py --auto                   # 自动定时采集（episode_time_s 到时自动结束）
     python record.py --dry_run               # 测试模式，不连接真实硬件
-    python record.py --manual_control        # 手动模式：Enter 开始/结束每个 episode
     python record.py --serial_port /dev/ttyCH341USB0 --repo_id myname/ugv-task --num_episodes 20
 
 完整参数说明见 README.md 和 DESIGN.md。
@@ -47,6 +47,85 @@ CONFIG_DEFAULT_PATH = os.path.join(_SCRIPT_DIR, "config", "ugv_config.yaml")
 
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("record")
+
+
+# ---------------------------------------------------------------------------
+# MJPEG 实时预览（浏览器访问，适用于无头/SSH 环境）
+# ---------------------------------------------------------------------------
+
+_mjpeg_frame_lock = threading.Lock()
+_mjpeg_latest_jpg: bytes = b""
+_mjpeg_server_started = False
+
+
+def _start_mjpeg_server(port: int = 8080) -> None:
+    """启动后台 MJPEG HTTP 服务，仅启动一次。"""
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+    global _mjpeg_server_started
+    if _mjpeg_server_started:
+        return
+
+    class _Handler(BaseHTTPRequestHandler):
+        def log_message(self, fmt, *args):  # 静默 HTTP 日志
+            pass
+
+        def do_GET(self):
+            if self.path in ("/", "/stream"):
+                self.send_response(200)
+                self.send_header("Content-Type",
+                                 "multipart/x-mixed-replace; boundary=frame")
+                self.end_headers()
+                try:
+                    while True:
+                        with _mjpeg_frame_lock:
+                            jpg = _mjpeg_latest_jpg
+                        if jpg:
+                            self.wfile.write(
+                                b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
+                                + jpg + b"\r\n"
+                            )
+                        time.sleep(0.033)
+                except (BrokenPipeError, ConnectionResetError, OSError):
+                    pass
+            else:
+                self.send_response(404)
+                self.end_headers()
+
+    srv = HTTPServer(("0.0.0.0", port), _Handler)
+    t = threading.Thread(target=srv.serve_forever, daemon=True, name="mjpeg-server")
+    t.start()
+    _mjpeg_server_started = True
+    # 获取本机局域网 IP
+    import socket
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        lan_ip = s.getsockname()[0]
+        s.close()
+    except Exception:
+        lan_ip = "<机器人IP>"
+    logger.info(
+        f"\n📷 摄像头预览已启动，在同局域网的浏览器打开：\n"
+        f"   http://{lan_ip}:{port}/stream"
+    )
+
+
+def _preview_frame(frame_rgb, label: str, is_recording: bool = False) -> None:
+    """
+    将一帧画面编码为 JPEG 并推入 MJPEG 流（不依赖 GUI/GTK）。
+    frame_rgb: numpy (H, W, 3) uint8，RGB 格式。
+    """
+    import cv2
+    global _mjpeg_latest_jpg
+    frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
+    text = f"{'[REC]' if is_recording else '[READY]'}  {label}"
+    color = (0, 60, 220) if is_recording else (0, 200, 60)
+    cv2.putText(frame_bgr, text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 0, 0), 3)
+    cv2.putText(frame_bgr, text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.75, color, 2)
+    ret, buf = cv2.imencode(".jpg", frame_bgr, [cv2.IMWRITE_JPEG_QUALITY, 75])
+    if ret:
+        with _mjpeg_frame_lock:
+            _mjpeg_latest_jpg = buf.tobytes()
 
 
 # ---------------------------------------------------------------------------
@@ -250,6 +329,8 @@ def run_recording(args: argparse.Namespace) -> None:
         logger.info("New dataset created.")
 
     # --- 5. 主采集循环 ---
+    if args.preview and not config.dry_run:
+        _start_mjpeg_server()
     try:
         _record_all_episodes(
             robot=robot,
@@ -265,7 +346,8 @@ def run_recording(args: argparse.Namespace) -> None:
             quit_event=quit_event,
             enter_event=_enter_event,
             enter_lock=_enter_lock,
-            manual_control=args.manual_control,
+            manual_control=not args.auto,
+            preview=args.preview and not config.dry_run,
         )
     finally:
         # --- 6. 清理与保存 ---
@@ -297,6 +379,7 @@ def _record_all_episodes(
     enter_event: list | None = None,
     enter_lock=None,
     manual_control: bool = False,
+    preview: bool = False,
 ) -> None:
     """逐 Episode 运行采集循环"""
 
@@ -313,7 +396,11 @@ def _record_all_episodes(
         while not (enter_event and enter_event[0]) and not quit_event[0]:
             action = teleop.get_action()
             robot.send_action(action)
-            time.sleep(period)
+            if preview:
+                obs = robot.get_observation()
+                _preview_frame(obs[camera_key], "Press Enter to start", is_recording=False)
+            else:
+                time.sleep(period)
 
     for ep_idx in range(existing_episodes, existing_episodes + num_episodes):
         if quit_event[0]:
@@ -359,6 +446,7 @@ def _record_all_episodes(
             camera_key=camera_key,
             quit_event=quit_event,
             enter_end_event=enter_event if manual_control else None,
+            preview=preview,
         )
 
         if frame_count == 0:
@@ -387,6 +475,8 @@ def _record_all_episodes(
                 reset_time_s=reset_time_s,
                 period=period,
                 quit_event=quit_event,
+                preview=preview,
+                camera_key=camera_key,
             )
 
 
@@ -402,6 +492,7 @@ def _record_one_episode(
     camera_key: str,
     quit_event: list,
     enter_end_event: list | None = None,
+    preview: bool = False,
 ) -> int:
     """
     执行单个 Episode 的采集。
@@ -432,6 +523,14 @@ def _record_one_episode(
 
         # 1. 获取观测
         obs = robot.get_observation()
+
+        # 实时预览
+        if preview:
+            _preview_frame(
+                obs[camera_key],
+                f"ep {episode_index + 1}  frame {frame_count}  t={elapsed:.1f}s",
+                is_recording=True,
+            )
 
         # 2. 获取遥控动作
         action = teleop.get_action()
@@ -484,6 +583,8 @@ def _wait_reset(
     reset_time_s: float,
     period: float,
     quit_event: list,
+    preview: bool = False,
+    camera_key: str = "observation.images.camera",
 ) -> None:
     """
     重置阶段：操作员控制小车回到起点，不录制数据。
@@ -496,7 +597,16 @@ def _wait_reset(
         # 在重置阶段也允许遥控（方便回到起点）
         action = teleop.get_action()
         robot.send_action(action)
-        time.sleep(period)
+        if preview:
+            obs = robot.get_observation()
+            remaining = reset_time_s - (time.perf_counter() - start)
+            _preview_frame(
+                obs[camera_key],
+                f"RESET  {remaining:.0f}s remaining",
+                is_recording=False,
+            )
+        else:
+            time.sleep(period)
 
 
 # ---------------------------------------------------------------------------
@@ -521,9 +631,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--camera_index", type=int, default=None, help="摄像头 /dev/videoN 序号")
     parser.add_argument("--dry_run", action="store_true", help="跳过真实串口和摄像头（调试用）")
     parser.add_argument(
-        "--manual_control",
+        "--preview",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="录制时同步弹出摄像头预览窗口（dry_run 下自动关闭）",
+    )
+    parser.add_argument(
+        "--auto",
         action="store_true",
-        help="手动控制录制：每个 episode 开始前等待 Enter 键，录制中再按 Enter 结束（忽略时间限制）",
+        default=False,
+        help="自动定时采集：每个 episode 到达 episode_time_s 后自动结束（默认为手动 Enter 控制）",
     )
 
     # -- 数据集参数（覆盖 yaml） --

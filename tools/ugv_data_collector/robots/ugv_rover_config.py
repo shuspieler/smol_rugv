@@ -25,9 +25,9 @@ class UGVSerialConfig:
     baud: int = 115200
     timeout: float = 1.0
     # 底盘物理参数
-    wheel_base: float = 0.235       # 轮距（m）
-    wheel_radius: float = 0.045     # 轮半径（m）
-    ticks_per_rev: int = 1320       # 编码器每圈脉冲数（保留，暂未使用）
+    wheel_base: float = 0.172       # 轮距（m）——ESP32固件 TRACK_WIDTH（UGV Rover）
+    wheel_radius: float = 0.040     # 轮半径（m）——ESP32固件 WHEEL_D/2=0.080/2
+    ticks_per_rev: int = 1650       # 编码器每圈脉冲数 halfQuad（保留，暂未使用；ESP32固件 ONE_CIRCLE_PLUSES）
 
 
 @dataclass
@@ -57,9 +57,9 @@ class UGVRoverConfig:
                 port=serial_raw.get("port", "/dev/ttyCH341USB0"),
                 baud=serial_raw.get("baud", 115200),
                 timeout=serial_raw.get("timeout", 1.0),
-                wheel_base=serial_raw.get("wheel_base", 0.235),
-                wheel_radius=serial_raw.get("wheel_radius", 0.045),
-                ticks_per_rev=serial_raw.get("ticks_per_rev", 1320),
+                wheel_base=serial_raw.get("wheel_base", 0.172),
+                wheel_radius=serial_raw.get("wheel_radius", 0.040),
+                ticks_per_rev=serial_raw.get("ticks_per_rev", 1650),
             ),
             camera=UGVCameraConfig(
                 index=camera_raw.get("index", 0),

@@ -22,26 +22,26 @@
 
 ## 系统架构
 
-系统由四个 ROS2 功能包组成，以异步话题通信解耦感知、语言、决策与执行：
+系统由五个 ROS2 功能包 + 1 调试包组成，以异步话题通信解耦感知、语言、决策与执行：
 
 ```
-麦克风 ──► speech_node ──────────────────────────────► /instruction_text ──►┐
-摄像头 ──► camera_node ──► /camera/image_raw ──────────────────────────────►│
-                                                                             ▼
-                                                                    vla_bridge_node
-                                                                             │
-底盘串口 ◄── chassis_driver_node ◄── /cmd_vel ◄──────────────────────────────┘
-              │
-              ├──► /odom/odom_raw
-              └──► /imu/data_raw
+键盘 ───► debug_node ──┬──► /cmd_vel ──────────────────────────────────────►┐
+                       └──► /e_stop                                          │
+摄像头 ─► camera_node ──────► /camera/image_raw ──► vla_bridge_node ─► /cmd_vel ─►├──► ugv_driver ◄──► 底盘串口
+麦克风 ─► speech_node ──────► /instruction_text ──► vla_bridge_node          │         │
+                                                                              │    ugv_bringup ◄── 底盘串口
+debug_node ◄── /camera/image_raw, /odom/odom_raw (OSD 速度显示)              │         ├──► /odom/odom_raw
+  MJPEG 预览 http://IP:8080                                                  │         └──► /imu/data_raw
 ```
 
-| 包 | 职责 |
-|----|------|
-| `camera` | 发布 `/camera/image_raw`（轻量，不含推理逻辑） |
-| `speech` | 语音转文字，发布 `/instruction_text` |
-| `chassis` | 串口驱动底盘，解析里程计与 IMU，订阅 `/cmd_vel` 与 `/e_stop` |
-| `vla` | SmolVLA 推理桥接：多路输入 → `/cmd_vel`，双线程架构（ROS 回调 + 推理循环） |
+| 包 | 节点 | 职责 |
+|----|------|------|
+| `camera` | `camera_node` | 发布 `/camera/image_raw`（25fps，轻量，不含推理） |
+| `speech` | `speech_node` | 语音转文字，发布 `/instruction_text` |
+| `chassis` | `ugv_driver` + `ugv_bringup` | 串口驱动底盘；解析里程计与 IMU；订阅 `/cmd_vel` 与 `/e_stop` |
+| `vla` | `vla_bridge_node` | SmolVLA 推理桥接：多路输入 → `/cmd_vel`，双线程架构 |
+| `debug` | `debug_node` | 键盘遥控（WASD/QE/Space）+ MJPEG 调试预览 + E-Stop 发布 |
+| `smol_bringup` | — | 系统级启动包，协调所有节点启动与参数分发 |
 
 详细架构与接口规范见 [design_doc/](design_doc/)。
 
@@ -50,11 +50,12 @@
 ```
 smol_rugv/
 ├── src/                        # ROS2 功能包源码
-│   ├── camera/                 # 视觉采集节点
-│   ├── speech/                 # 语音识别节点
-│   ├── chassis/                # 底盘串口驱动节点
-│   ├── vla/                    # VLA 决策桥接节点
-│   └── smol_bringup/           # 系统级启动包
+│   ├── camera/                 # 视觉采集节点（camera_node）
+│   ├── debug/                  # 键盘遥控 + MJPEG 调试节点（debug_node）
+│   ├── speech/                 # 语音识别节点（speech_node）
+│   ├── chassis/                # 底盘串口驱动节点（ugv_driver + ugv_bringup）
+│   ├── vla/                    # VLA 决策桥接节点（vla_bridge_node）
+│   └── smol_bringup/           # 系统级启动包（参数分发 + 条件启动）
 ├── tools/
 │   ├── ugv_ctrl_tester/        # 零依赖控制通路验证工具（WASD + 图样采样）
 │   ├── ugv_data_collector/     # LeRobot 兼容数据采集工具
@@ -99,7 +100,26 @@ colcon build --symlink-install
 
 # 启动
 source install/setup.bash
-ros2 launch smol_bringup bringup.launch.py
+ros2 launch smol_bringup smol_bringup.launch.py
+```
+
+### 单节点开发调试
+
+```bash
+source install/setup.bash
+
+# 摄像头（发布 /camera/image_raw）
+ros2 run camera camera_node
+
+# 底盘（两个节点均需启动）
+ros2 run chassis ugv_bringup   # 读取串口反馈，发布 odom / IMU
+ros2 run chassis ugv_driver    # 订阅 cmd_vel / e_stop，驱动 ESP32
+
+# 调试预览（键盘遥控 + http://IP:8080 MJPEG 流）
+ros2 run debug debug_node
+
+# 查看完整串口 TX 日志（DEBUG 级别）
+ros2 run chassis ugv_driver --ros-args --log-level DEBUG
 ```
 
 ## 开发进度

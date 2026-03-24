@@ -105,7 +105,8 @@ class ugv_bringup(Node):
         self.imu_mag_publisher_ = self.create_publisher(MagneticField, "imu/mag", 100)
         self.odom_publisher_ = self.create_publisher(Odometry, "odom/odom_raw", 100)
         self.voltage_publisher_ = self.create_publisher(Float32, "voltage", 50)
-        self.wheel_base = self.declare_parameter("wheel_base", 0.0).value
+        # UGV Rover (mainType:02) TRACK_WIDTH = 0.172 m（源自 ugv_config.h:347）
+        self.wheel_base = self.declare_parameter("wheel_base", 0.172).value
         self.test_mode = self.declare_parameter("test_mode", test_mode).value
         self.odom_x = 0.0
         self.odom_y = 0.0
@@ -210,11 +211,13 @@ class ugv_bringup(Node):
 
         if self.wheel_base > 0.0:
             dtheta = (dr - dl) / self.wheel_base
+            wz = dtheta / dt
         else:
-            dtheta = 0.0
+            # wheel_base 未配置时，用 IMU 陀螺仪 gz 代替轮差分角速度
+            wz = math.pi * float(self.base_controller.base_data["gz"]) / (16.4 * 180)
+            dtheta = wz * dt
 
         # 噪声剔除：角速度 >= 20 rad/s 为异常数据，角度不积分
-        wz = dtheta / dt
         if abs(wz) >= 20.0:
             self.get_logger().debug(f"[bringup] gyro spike ignored: wz={wz:.2f}")
             return

@@ -43,7 +43,7 @@ from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSDurabilityPolicy, QoSHistoryPolicy
 from sensor_msgs.msg import Image
-from std_msgs.msg import Bool
+from std_msgs.msg import Bool, Float32
 
 # ---------------------------------------------------------------------------
 # Linux input_event 布局
@@ -262,6 +262,7 @@ def _draw_osd(
     wz_cmd: float,
     vx_fb: float,
     wz_fb: float,
+    voltage: float,
 ) -> np.ndarray:
     """在左上角叠加状态信息，返回修改后的画面（in-place）。"""
     lines = [
@@ -269,6 +270,7 @@ def _draw_osd(
         f"scale : {scale:.2f}",
         f"vx cmd: {vx_cmd:+.2f}  fb: {vx_fb:+.2f} m/s",
         f"wz cmd: {wz_cmd:+.2f}  fb: {wz_fb:+.2f} r/s",
+        f"volts : {voltage:.2f} V" if voltage > 0.0 else "volts : --",
     ]
     stop_color  = (0, 0, 220)
     norm_color  = (0, 220, 80)
@@ -320,6 +322,7 @@ class DebugNode(Node):
         self._last_wz        = 0.0
         self._fb_vx          = 0.0   # odom 反馈速度
         self._fb_wz          = 0.0
+        self._voltage        = 0.0   # 电压反馈
 
         # --- 话题 ---
         self._cmd_pub  = self.create_publisher(Twist, "cmd_vel", 10)
@@ -342,6 +345,12 @@ class DebugNode(Node):
             Odometry,
             "/odom/odom_raw",
             self._odom_callback,
+            sensor_qos,
+        )
+        self._voltage_sub = self.create_subscription(
+            Float32,
+            "/voltage",
+            self._voltage_callback,
             sensor_qos,
         )
 
@@ -376,6 +385,10 @@ class DebugNode(Node):
         self._fb_vx = msg.twist.twist.linear.x
         self._fb_wz = msg.twist.twist.angular.z
 
+    def _voltage_callback(self, msg: Float32) -> None:
+        """从 /voltage 获取电池电压，用于 OSD 显示。"""
+        self._voltage = msg.data
+
     # ------------------------------------------------------------------
     def _image_callback(self, msg: Image) -> None:
         """订阅图像，叠加 OSD后推入 MJPEG 流。"""
@@ -387,7 +400,8 @@ class DebugNode(Node):
 
         _draw_osd(frame_bgr, self._e_stop_active, self._scale,
                   self._last_vx, self._last_wz,
-                  self._fb_vx, self._fb_wz)
+                  self._fb_vx, self._fb_wz,
+                  self._voltage)
 
         ret, buf = cv2.imencode(
             ".jpg", frame_bgr,

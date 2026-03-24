@@ -10,16 +10,9 @@ from std_msgs.msg import Header, Float32
 from sensor_msgs.msg import Imu, MagneticField
 from nav_msgs.msg import Odometry
 import math
-import os
 
-def is_jetson():
-    result = any("ugv_jetson" in root for root, dirs, files in os.walk("/"))
-    return result
-
-if is_jetson():
-    serial_port = '/dev/ttyCH341USB0'
-else:
-    serial_port = '/dev/ttyAMA0'
+# Jetson Orin Nano: CH341 USB-serial adapter
+_DEFAULT_SERIAL_PORT = '/dev/ttyCH341USB0'
 
 # Helper class for reading lines from a serial port
 class ReadLine:
@@ -130,14 +123,20 @@ class ugv_bringup(Node):
         elif self.test_mode:
             self.base_controller = DummyBaseController()
         else:
-            self.base_controller = BaseController(serial_port, 115200)
+            self.base_controller = BaseController(_DEFAULT_SERIAL_PORT, 115200)
+            self.get_logger().info(f"Serial port {_DEFAULT_SERIAL_PORT} opened at 115200 baud")
         # Timer to periodically execute the feedback loop
         if not self.test_mode:
             self.feedback_timer = self.create_timer(0.001, self.feedback_loop)
+        self.get_logger().info("ugv_bringup ready — publishing imu/data_raw, imu/mag, odom/odom_raw, voltage")
 
     # Main loop for reading sensor feedback and publishing it to ROS topics
     def feedback_loop(self):
-        self.base_controller.feedback_data()
+        data = self.base_controller.feedback_data()
+        if data is None:
+            self.get_logger().warn("[bringup] feedback_data returned None (parse error), skipping frame",
+                                   throttle_duration_sec=5.0)
+            return
         if self.base_controller.base_data["T"] == 1001:  # Check if the feedback type is correct
             self.publish_imu_data_raw()  # Publish IMU raw data
             self.publish_imu_mag()  # Publish magnetic field data
@@ -183,47 +182,64 @@ class ugv_bringup(Node):
     # Publish odometry data to the ROS topic "odom/odom_raw"
     def publish_odom_raw(self):
         odom_raw_data = self.base_controller.base_data
-        left_m = float(odom_raw_data["odl"]) / 100.0
+        left_m  = float(odom_raw_data["odl"]) / 100.0
         right_m = float(odom_raw_data["odr"]) / 100.0
-        now_ns = self.get_clock().now().nanoseconds
+        now_ns  = self.get_clock().now().nanoseconds
+
         if self.last_odom_time_ns is None:
-            dt = 1.0
-            dl = 0.0
-            dr = 0.0
+            # 首帧：以当前里程计值为基准，不计算差分，避免首帧跳变
             self.last_odom_time_ns = now_ns
-            self.last_left = left_m
+            self.last_left  = left_m
             self.last_right = right_m
-        else:
-            dt = max((now_ns - self.last_odom_time_ns) / 1e9, 1e-6)
-            dl = left_m - self.last_left
-            dr = right_m - self.last_right
-            self.last_odom_time_ns = now_ns
-            self.last_left = left_m
-            self.last_right = right_m
+            return
+
+        dt = max((now_ns - self.last_odom_time_ns) / 1e9, 1e-6)
+        dl = left_m  - self.last_left
+        dr = right_m - self.last_right
+        self.last_odom_time_ns = now_ns
+        self.last_left  = left_m
+        self.last_right = right_m
+
+        ds = (dl + dr) / 2.0
+        vx = ds / dt
+
+        # 噪声剔除：里程计跳变 >= 5 m/s 视为 ESP32 重启/溢出异常帧，丢弃
+        if abs(vx) >= 5.0:
+            self.get_logger().debug(f"[bringup] odometry spike ignored: vx={vx:.2f} dl={dl:.4f} dr={dr:.4f} dt={dt:.4f}")
+            return
 
         if self.wheel_base > 0.0:
             dtheta = (dr - dl) / self.wheel_base
         else:
             dtheta = 0.0
-        ds = (dr + dl) / 2.0
+
+        # 噪声剔除：角速度 >= 20 rad/s 为异常数据，角度不积分
+        wz = dtheta / dt
+        if abs(wz) >= 20.0:
+            self.get_logger().debug(f"[bringup] gyro spike ignored: wz={wz:.2f}")
+            return
+
         self.odom_yaw += dtheta
-        self.odom_x += ds * math.cos(self.odom_yaw)
-        self.odom_y += ds * math.sin(self.odom_yaw)
+        self.odom_x   += ds * math.cos(self.odom_yaw)
+        self.odom_y   += ds * math.sin(self.odom_yaw)
 
         msg = Odometry()
         msg.header = Header()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.header.frame_id = "odom"
-        msg.child_frame_id = "base_link"
+        msg.child_frame_id  = "base_link"
         msg.pose.pose.position.x = self.odom_x
         msg.pose.pose.position.y = self.odom_y
         msg.pose.pose.position.z = 0.0
         msg.pose.pose.orientation.z = math.sin(self.odom_yaw / 2.0)
         msg.pose.pose.orientation.w = math.cos(self.odom_yaw / 2.0)
-        msg.twist.twist.linear.x = ds / dt
-        msg.twist.twist.angular.z = dtheta / dt
+        msg.twist.twist.linear.x  = vx
+        msg.twist.twist.angular.z = wz
         self.odom_publisher_.publish(msg)
         self.last_odom_raw = msg
+        self.get_logger().info(
+            f"[odom] vx={vx:.3f} wz={wz:.3f}  x={self.odom_x:.2f} y={self.odom_y:.2f} yaw={math.degrees(self.odom_yaw):.1f}°",
+            throttle_duration_sec=5.0)
 
     # Publish voltage data to the ROS topic "voltage"
     def publish_voltage(self):
@@ -232,6 +248,7 @@ class ugv_bringup(Node):
         msg.data = float(voltage_data["v"])/100
         self.voltage_publisher_.publish(msg)
         self.last_voltage = msg
+        self.get_logger().info(f"[voltage] {msg.data:.2f} V", throttle_duration_sec=10.0)
                         
 # Main function to initialize the ROS node and start spinning
 def main(args=None):

@@ -108,13 +108,22 @@ ros2 launch smol_bringup bringup.launch.py
 |--------|------|------|
 | Sprint 0 | 架构确认与基线整理 | ✅ 完成 |
 | Sprint 1 | 底盘串口驱动与急停仲裁 | ✅ 完成 |
-| Sprint 2 | 视觉采集发布 | ✅ 完成 |
-| Sprint 3 | 语音识别模块 | ✅ 完成 |
-| Sprint 4 | VLA 决策桥接实现 | ✅ 完成 |
-| Sprint 5 | 系统启动包与集成准备 | ✅ 完成 |
-| Sprint 6 | 系统验证与端到端测试 | 🔲 进行中 |
+| Sprint 2 | 视觉采集节点（camera_node 实现，25fps 验证） | ✅ 完成 |
+| Sprint 3 | 语音识别模块 | 🔲 待验证 |
+| Sprint 4 | VLA 决策桥接实现 | 🔲 待模型训练 |
+| Sprint 5 | 底盘加固 + 全节点可观测性 | ✅ 完成 |
+| Sprint 6 | 系统硬件验证与端到端测试 | 🔲 进行中 |
 
-待办：VLA 模型训练（使用 LeRobot 采集数据后训练适配小车的权重）、e_stop 人为触发链路。
+**Sprint 5 完成内容：**
+- 移除 `is_jetson()` 全盘扫描，硬编码 `/dev/ttyCH341USB0`
+- 修复 `ugv_bringup` 里程计首帧跳变、添加 vx/wz 噪声剔除（5 m/s / 20 rad/s 阈值）
+- `ugv_driver` 与 `ugv_bringup` 全节点 INFO/DEBUG 日志覆盖，`ros2 run` 终端可见完整状态
+- `debug_node` MJPEG 流 + OSD（指令速度/反馈速度/E-Stop），键盘可选（无设备不崩溃）
+- USB 自动休眠永久禁用（udev rule + rc.local）
+
+**待办：**
+- VLA 模型训练（使用 LeRobot 采集数据后训练适配小车的权重）
+- Sprint 6 硬件验证（odom hz、e_stop watchdog、wheel_base 校准）
 
 ## License
 

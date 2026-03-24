@@ -2,34 +2,28 @@
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
-import serial  
-import json  
+import serial
+import json
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Float32, Float32MultiArray, Bool
-import subprocess
-import time
-import os
 
-def is_jetson():
-    result = any("ugv_jetson" in root for root, dirs, files in os.walk("/"))
-    return result
-
-if is_jetson():
-    serial_port = '/dev/ttyCH341USB0'
-else:
-    serial_port = '/dev/ttyAMA0'
+# Jetson Orin Nano: CH341 USB-serial adapter
+_DEFAULT_SERIAL_PORT = '/dev/ttyCH341USB0'
 
 class UgvDriver(Node):
     def __init__(self, name, serial_client=None, test_mode=False):
         super().__init__(name)
         self.test_mode = self.declare_parameter("test_mode", test_mode).value
-        self.serial_port = self.declare_parameter("serial_port", serial_port).value
+        self.serial_port = self.declare_parameter("serial_port", _DEFAULT_SERIAL_PORT).value
         self.serial_baud = self.declare_parameter("serial_baud", 115200).value
         self.ser = serial_client
         self.sent_json = []
         self.last_velocity_command = None
         if self.ser is None and not self.test_mode:
             self.ser = serial.Serial(self.serial_port, self.serial_baud, timeout=1)
+            self.get_logger().info(
+                f"Serial port {self.serial_port} opened at {self.serial_baud} baud"
+            )
 
         # Subscribe to velocity commands (cmd_vel topic)
         self.cmd_vel_sub_ = self.create_subscription(Twist, "cmd_vel", self.cmd_vel_callback, 10)
@@ -46,8 +40,17 @@ class UgvDriver(Node):
         # Subscribe to voltage data (voltage topic)
         self.voltage_sub = self.create_subscription(Float32, 'voltage', self.voltage_callback, 10)
 
+        mode_str = "TEST MODE (no serial)" if self.test_mode else f"port={self.serial_port}"
+        self.get_logger().info(
+            f"ugv_driver ready — {mode_str}  "
+            "| topics: cmd_vel, e_stop, ugv/joint_states, ugv/led_ctrl, voltage"
+        )
+
     # Callback for processing velocity commands
     def cmd_vel_callback(self, msg):
+        self.get_logger().debug(
+            f"cmd_vel received: linear.x={msg.linear.x:.3f}  angular.z={msg.angular.z:.3f}"
+        )
         if self.e_stop_active:
             linear_velocity = 0.0
             angular_velocity = 0.0
@@ -63,10 +66,16 @@ class UgvDriver(Node):
 
         # Send the velocity data to the UGV as a JSON string
         self.send_velocity(linear_velocity, angular_velocity)
+        self.get_logger().info(
+            f"[cmd_vel] vx={linear_velocity:.3f}  wz={angular_velocity:.3f}"
+            + ("  [E-STOP active → zeroed]" if self.e_stop_active else ""),
+            throttle_duration_sec=1.0,
+        )
 
     def send_json(self, payload):
         data = json.dumps(payload) + "\n"
         self.sent_json.append(payload)
+        self.get_logger().debug(f"serial TX → {data.strip()}")
         if self.ser is not None:
             self.ser.write(data.encode())
 
@@ -76,7 +85,12 @@ class UgvDriver(Node):
         self.send_json(payload)
 
     def e_stop_callback(self, msg):
+        prev = self.e_stop_active
         self.e_stop_active = bool(msg.data)
+        if self.e_stop_active != prev:
+            self.get_logger().info(
+                f"E-STOP {'ACTIVE — chassis halted' if self.e_stop_active else 'released — chassis enabled'}"
+            )
         if self.e_stop_active:
             self.send_velocity(0.0, 0.0)
 
@@ -135,10 +149,15 @@ class UgvDriver(Node):
     def voltage_callback(self, msg):
         voltage_value = msg.data
 
-        # If voltage drops below a threshold, play a low battery warning sound
-        if 0.1 < voltage_value < 9: 
-            subprocess.run(['aplay', '-D', 'plughw:3,0', '/home/ws/ugv_ws/src/ugv_main/ugv_bringup/ugv_bringup/low_battery.wav'])
-            time.sleep(5)
+        self.get_logger().info(
+            f"[voltage] {voltage_value:.2f} V",
+            throttle_duration_sec=10.0,
+        )
+        # Warn when battery is low
+        if 0.1 < voltage_value < 9:
+            self.get_logger().warn(
+                f"[chassis] Low battery warning: {voltage_value:.2f} V — please charge!"
+            )
 
 def main(args=None):
     rclpy.init(args=args)

@@ -28,8 +28,14 @@
 # Sprint 5：系统级启动、集成准备与模型训练
 - [x] 建立 smol_bringup 启动包与系统参数分层
 - [x] 建立系统级启动顺序与降级策略验证
-- [ ] 明确 e_stop 人为触发链路（TBD，待 VLA 完成后明确）
+- [x] 明确 e_stop 人为触发链路：由 keyboard_node 直接发布 /e_stop
 - [ ] 执行 VLA 模型训练（外部 LeRobot 环境，输出适配小车的模型权重）
+
+# Sprint 5.5：调试模块（keyboard 升级为 debug）
+- [x] 新建 debug 包（package.xml / setup.py / setup.cfg）
+- [x] 实现 debug_node：evdev 直读键盘 + WASD 控制 + 空格急停
+- [x] 订阅 /camera/image_raw，叠加 OSD 后通过内置 MJPEG HTTP 服务推流到浏览器
+- [x] 注册到 smol_bringup.launch.py，enable_debug 开关默认 false
 
 # Sprint 6：系统验证与测试
 - [ ] 执行底盘单元测试与接口验证（移自 Sprint 1）

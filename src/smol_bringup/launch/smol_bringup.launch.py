@@ -36,6 +36,8 @@ def generate_launch_description():
     enable_camera = LaunchConfiguration("enable_camera")
     enable_speech = LaunchConfiguration("enable_speech")
     enable_vla = LaunchConfiguration("enable_vla")
+    enable_keyboard = LaunchConfiguration("enable_keyboard")
+    enable_debug = LaunchConfiguration("enable_debug")
 
     params = [
         base_params,
@@ -83,6 +85,35 @@ def generate_launch_description():
         parameters=params,
     )
 
+    debug_node = Node(
+        package="debug",
+        executable="debug_node",
+        name="debug_node",
+        output="screen",
+        # debug_node 不依赖 bringup 参数体系，仅透传 use_sim_time
+        parameters=[{"use_sim_time": use_sim_time}],
+    )
+
+    debug_group = GroupAction(
+        condition=IfCondition(enable_debug),
+        actions=[TimerAction(period=1.0, actions=[debug_node])],
+    )
+
+    # keyboard_node 保留为 debug_node 的旧别名，已由 debug_group 取代
+
+    keyboard_node = Node(
+        package="debug",
+        executable="debug_node",
+        name="keyboard_node",
+        output="screen",
+        parameters=[{"use_sim_time": use_sim_time}],
+    )
+
+    keyboard_group = GroupAction(
+        condition=IfCondition(enable_keyboard),
+        actions=[TimerAction(period=1.0, actions=[keyboard_node])],
+    )
+
     camera_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(camera_dir, "launch", "camera.launch.py")),
         launch_arguments={"namespace": camera_namespace}.items(),
@@ -127,6 +158,10 @@ def generate_launch_description():
             DeclareLaunchArgument("enable_camera", default_value="true"),
             DeclareLaunchArgument("enable_speech", default_value="true"),
             DeclareLaunchArgument("enable_vla", default_value="true"),
+            # keyboard 默认关闭，调试时手动开启，避免干扰正常推理
+            DeclareLaunchArgument("enable_keyboard", default_value="false"),
+            # debug_node 是升级后的新入口，包含键盘控制 + 摄像头流推送
+            DeclareLaunchArgument("enable_debug", default_value="false"),
             DeclareLaunchArgument(
                 "base_params", default_value=os.path.join(bringup_dir, "config", "base.yaml")
             ),
@@ -157,6 +192,8 @@ def generate_launch_description():
             camera_group,
             speech_group,
             vla_group,
+            keyboard_group,
+            debug_group,
             validation_group,
         ]
     )

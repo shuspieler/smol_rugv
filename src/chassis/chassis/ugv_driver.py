@@ -71,7 +71,7 @@ class UgvDriver(Node):
             self.ser.write(data.encode())
 
     def send_velocity(self, linear_velocity, angular_velocity):
-        payload = {'T': '13', 'X': linear_velocity, 'Z': angular_velocity}
+        payload = {'T': 13, 'X': round(float(linear_velocity), 4), 'Z': round(float(angular_velocity), 4)}
         self.last_velocity_command = payload
         self.send_json(payload)
 

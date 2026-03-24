@@ -19,4 +19,6 @@
 - 已将 ugv_data_collector 键盘控制链路切换为 ugv_ctrl_tester 已验证的 evdev 方案（支持 Jetson 直连键盘/无桌面场景），并新增 --keyboard_device 参数
 - 已将 ugv_data_collector 控制状态机对齐为与 ugv_ctrl_tester 零差异（同 evdev 按键处理、同速度向量更新、移除 Enter 提前结束逻辑）
 - 已完成 ugv_data_collector 收尾清理：移除控制链路残留兼容参数与 Enter 文案，确保文档与运行行为一致
+- 已完成 Sprint 5.5 升级：keyboard 包升级为 debug，keyboard_node 升级为 debug_node，新增订阅 /camera/image_raw、OSD 叠加、内置 MJPEG HTTP 服务（http://<robot-ip>:8080/），更新所有相关文档与 launch 配置
+- 已明确 e_stop 人为触发链路：由 keyboard_node 发布 /e_stop，chassis 内置仲裁订阅响应
 </toolcall_result>

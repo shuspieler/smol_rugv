@@ -40,7 +40,9 @@ class CameraNode(Node):
     """Capture from a USB camera and publish frames to ROS2."""
 
     def __init__(self) -> None:
-        super().__init__("camera_node")
+        # namespace="camera" 让 ros2 run 直接启动时 topic 也在 /camera/image_raw
+        # launch 文件通过 __ns 重映射覆盖，效果相同
+        super().__init__("camera_node", namespace="camera")
 
         # ── Parameters ────────────────────────────────────────────────────
         self.declare_parameter("video_device", "/dev/video0")
@@ -85,6 +87,7 @@ class CameraNode(Node):
         self._pub = self.create_publisher(Image, "image_raw", _SENSOR_QOS)
 
         # ── Capture timer ─────────────────────────────────────────────────
+        self._last_reopen_time: float = 0.0   # 重连冷却，避免高频雪崩
         self._timer = self.create_timer(1.0 / fps, self._capture_cb)
 
         self.get_logger().info(
@@ -98,6 +101,11 @@ class CameraNode(Node):
 
         ok, frame = self._cap.read()
         if not ok:
+            import time as _time
+            now = _time.monotonic()
+            if now - self._last_reopen_time < 2.0:  # 2秒冷却，避免高频重连锁死设备
+                return
+            self._last_reopen_time = now
             self.get_logger().warn("Camera read failed — attempting reopen on /dev/video0")
             self._cap.release()
             self._cap = cv2.VideoCapture(0)

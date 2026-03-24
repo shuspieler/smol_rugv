@@ -118,6 +118,7 @@ ros2 launch smol_bringup bringup.launch.py
 - 移除 `is_jetson()` 全盘扫描，硬编码 `/dev/ttyCH341USB0`
 - 修复 `ugv_bringup` 里程计首帧跳变、添加 vx/wz 噪声剔除（5 m/s / 20 rad/s 阈值）
 - `ugv_driver` 与 `ugv_bringup` 全节点 INFO/DEBUG 日志覆盖，`ros2 run` 终端可见完整状态
+- `camera_node` 新增 `namespace="camera"`，`ros2 run` 直接启动 topic 路径正确为 `/camera/image_raw`；新增 2 秒重连冷却，防止读帧失败时高频重连锁死设备
 - `debug_node` MJPEG 流 + OSD（指令速度/反馈速度/E-Stop），键盘可选（无设备不崩溃）
 - USB 自动休眠永久禁用（udev rule + rc.local）
 

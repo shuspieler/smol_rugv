@@ -349,23 +349,25 @@ class DebugNode(Node):
         self._mjpeg = _MjpegServer(stream_port, self.get_logger())
         self._mjpeg.start()
 
-        # --- evdev ---
+        # --- evdev（键盘可选：无键盘时仅提供 MJPEG 推流）---
         device_path = device_param if device_param != "auto" else _find_keyboard_device()
         if device_path is None:
-            self.get_logger().error(
-                "[debug] 未找到键盘设备，请通过参数 keyboard_device 手动指定 /dev/input/eventN"
+            self.get_logger().warn(
+                "[debug] 未找到键盘设备，键盘控制不可用，但摄像头推流正常运行。\n"
+                "  如需键盘控制，请通过参数 keyboard_device:=/dev/input/eventN 手动指定设备"
             )
-            raise RuntimeError("keyboard device not found")
-
-        self._reader = _EvdevReader(device_path, self.get_logger())
-        self._reader.start()
+            self._reader: Optional[_EvdevReader] = None
+        else:
+            self._reader = _EvdevReader(device_path, self.get_logger())
+            self._reader.start()
 
         # --- 控制定时器 ---
         self._timer = self.create_timer(1.0 / pub_hz, self._control_loop)
 
         self.get_logger().info(
             f"[debug] 节点启动  device={device_path}  stream_port={stream_port}\n"
-            "  WASD 移动 | 空格 急停/解除 | Q/E 减速/加速 | Esc 退出"
+            + ("  WASD 移动 | 空格 急停/解除 | Q/E 减速/加速 | Esc 退出"
+               if device_path else "  摄像头推流模式（无键盘控制）")
         )
 
     # ------------------------------------------------------------------
@@ -396,6 +398,8 @@ class DebugNode(Node):
 
     # ------------------------------------------------------------------
     def _control_loop(self) -> None:
+        if self._reader is None:
+            return
         held = self._reader.get_held()
 
         # Esc → 退出
@@ -449,7 +453,8 @@ class DebugNode(Node):
 
     # ------------------------------------------------------------------
     def destroy_node(self) -> None:
-        self._reader.stop()
+        if self._reader is not None:
+            self._reader.stop()
         super().destroy_node()
 
 

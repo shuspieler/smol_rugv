@@ -1,3 +1,10 @@
 - [Sprint 0][done] remove april tag tracking node
-- [Sprint 2][done] Create a node for the usb_cam package, may need install usb_cam package from ros2 repository
 - [Sprint 0][done] check if there are rest un-matched name in code, change ugv_vision to camera
+- [Sprint 2][done] 明确 camera_node 实现路径：采用 Python + OpenCV 自定义节点，替换原 usb_cam_node_exe 外部依赖
+- [Sprint 2][done] 创建 camera/camera_node.py：cv2.VideoCapture 自动检测设备，BestEffort QoS，发布 sensor_msgs/Image 到 image_raw
+- [Sprint 2][done] 更新 launch/camera.launch.py：使用 camera_node，保留 namespace 参数兼容 smol_bringup
+- [Sprint 2][done] 更新 setup.py entry_points 注册 camera_node 可执行入口
+- [Sprint 2][done] 添加 cv_bridge 依赖到 package.xml
+- [Sprint 2][done] 对齐 QoS：publisher BestEffort/Volatile/depth=10，与 debug_node / vla_bridge_node 订阅端一致
+- [Sprint 6][todo] 上机验证：ros2 launch camera camera.launch.py，确认 /camera/image_raw 有帧率正常的图像流
+- [Sprint 6][todo] 验证 debug_node MJPEG 推流画面正常（订阅 /camera/image_raw）

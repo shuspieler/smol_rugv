@@ -32,13 +32,16 @@ class SyncPolicy:
                 self.logger.debug(f"Image data is stale. Delay: {image_age:.3f}s")
             return False
 
-        # 2. Check Odom existence (optional, depending on whether model strictly needs it)
-        # For SmolVLA, proprioception is usually required.
+        # 2. Check Odom existence (optional when chassis not running)
+        # If odom is absent, inference continues with zero state (degraded but functional).
         if data["odom"] is None:
             if self.logger:
-                self.logger.debug("No odom data available.")
-            return False
-            
+                self.logger.warn(
+                    "No odom data — running inference with zero state. Start chassis node for full operation.",
+                    throttle_duration_sec=10.0
+                )
+            return True  # allow inference with zero state via InputMapper fallback
+
         # Odom is high frequency, should be very fresh
         odom_age = current_time - timestamps["odom"]
         if odom_age > self.odom_timeout:

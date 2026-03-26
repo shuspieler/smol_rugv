@@ -1,3 +1,5 @@
+import time as _time
+
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
@@ -73,19 +75,57 @@ class ROSIO:
             reliable_qos
         )
         
+        # Frame-rate counters (written from ROS callbacks, read from status timer — same thread)
+        self._cb_counts  = {"image": 0, "odom": 0, "imu": 0, "instruction": 0}
+        self._hz_t0      = _time.monotonic()
+        self._hz_counts0 = {"image": 0, "odom": 0, "imu": 0, "instruction": 0}
+
         self.node.get_logger().info("ROSIO initialized with subscribers and publishers.")
 
     def _image_callback(self, msg: Image):
+        self._cb_counts["image"] += 1
         try:
-            # Convert to RGB (SmolVLA expects RGB)
-            cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='rgb8')
-            # ROS Time to float seconds
+            enc = msg.encoding.lower()
+            h, w = msg.height, msg.width
+
+            if enc in ('bgr8', 'rgb8', 'mono8'):
+                # Direct numpy decode — bypasses cv_bridge Boost.Python version issues.
+                # Equivalent to cv_bridge for packed formats; handles row-padding via msg.step.
+                channels = 1 if enc == 'mono8' else 3
+                raw = np.frombuffer(msg.data, dtype=np.uint8)
+                if msg.step == w * channels:
+                    frame = raw.reshape(h, w, channels)
+                else:
+                    # Row-padded: read full stride, then slice to actual width
+                    frame = raw.reshape(h, msg.step)[:, : w * channels].reshape(h, w, channels)
+                if enc == 'bgr8':
+                    # BGR→RGB in-place view then copy
+                    frame = frame[:, :, ::-1].copy()
+                elif enc == 'mono8':
+                    frame = np.stack([frame[:, :, 0]] * 3, axis=2)
+                # else rgb8: already correct order
+            else:
+                # Fallback: try cv_bridge for exotic encodings (yuv, bayer, etc.)
+                import cv2
+                frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+                frame = frame[:, :, ::-1].copy()  # BGR→RGB
+
+            if frame is None or frame.size == 0:
+                self.node.get_logger().warn(
+                    "Empty image received, skipping.", throttle_duration_sec=2.0)
+                return
+
+            # HWC (H, W, 3) → CHW (3, H, W) as expected by the LeRobot/SmolVLA pipeline.
+            frame = frame.transpose(2, 0, 1)
+            frame = np.ascontiguousarray(frame)
             timestamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
-            self.buffer.update("image", cv_image, timestamp)
+            self.buffer.update("image", frame, timestamp)
         except Exception as e:
-            self.node.get_logger().error(f"Image conversion failed: {e}")
+            self.node.get_logger().error(
+                f"Image conversion failed: {e}", throttle_duration_sec=2.0)
 
     def _odom_callback(self, msg: Odometry):
+        self._cb_counts["odom"] += 1
         try:
             # Store odom data as a dict of numpy arrays
             state = {
@@ -105,6 +145,7 @@ class ROSIO:
             self.node.get_logger().error(f"Odom parsing failed: {e}", throttle_duration_sec=1.0)
 
     def _imu_callback(self, msg: Imu):
+        self._cb_counts["imu"] += 1
         try:
             data = {
                 "orientation": np.array([
@@ -122,6 +163,7 @@ class ROSIO:
             self.node.get_logger().error(f"IMU parsing failed: {e}", throttle_duration_sec=1.0)
 
     def _instruction_callback(self, msg: String):
+        self._cb_counts["instruction"] += 1
         try:
             # Use current system time as instructions don't always have header
             timestamp = self.node.get_clock().now().nanoseconds * 1e-9
@@ -138,3 +180,15 @@ class ROSIO:
         msg.linear.x = float(linear)
         msg.angular.z = float(angular)
         self.pub_cmd_vel.publish(msg)
+
+    def get_topic_hz(self) -> dict:
+        """Return rolling Hz since last call for each subscribed topic."""
+        now = _time.monotonic()
+        dt = now - self._hz_t0
+        if dt < 0.01:
+            return {k: 0.0 for k in self._cb_counts}
+        hz = {k: (self._cb_counts[k] - self._hz_counts0[k]) / dt
+              for k in self._cb_counts}
+        self._hz_t0      = now
+        self._hz_counts0 = dict(self._cb_counts)
+        return hz

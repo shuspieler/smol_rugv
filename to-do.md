@@ -29,7 +29,14 @@
 - [x] 建立 smol_bringup 启动包与系统参数分层
 - [x] 建立系统级启动顺序与降级策略验证
 - [x] 明确 e_stop 人为触发链路：由 keyboard_node 直接发布 /e_stop
-- [ ] 执行 VLA 模型训练（外部 LeRobot 环境，输出适配小车的模型权重）
+- [x] 执行 VLA 模型训练（外部 LeRobot 环境，输出适配小车的模型权重）
+
+# Sprint 5.6：VLA ROS 节点集成与底盘驱动整合
+- [x] 修复图像管道：bypass cv_bridge，numpy 直接解码，HWC→CHW，row-padding 处理
+- [x] 修复 sync_policy：odom 缺失时返回零状态（不阻塞推理）
+- [x] 整合底盘 cmd_vel 转发到 ugv_bringup（废弃 ugv_driver，避免串口冲突）
+- [x] 实现 e_stop 可靠急停：ugv_bringup 50ms watchdog + _cmd_vel_callback 仲裁门
+- [x] 端到端验证：VLA 控制小车运动，空格急停可靠（chassis 为唯一仲裁层）
 
 # Sprint 5.5：调试模块（keyboard 升级为 debug）
 - [x] 新建 debug 包（package.xml / setup.py / setup.cfg）
@@ -42,5 +49,7 @@
 - [ ] 执行视觉发布的单元测试与接口验证（移自 Sprint 2）
 - [ ] 执行语音指令处理单元测试（移自 Sprint 3）
 - [ ] 执行 VLA 推理接口测试（移自 Sprint 4）
+- [ ] 验证 e_stop watchdog：发布 /e_stop true 后底盘持续发零速（50ms 间隔）
+- [ ] 压力测试：VLA 长时运行里程计累积、action queue 稳定性
 - [ ] 设计与执行端到端集成测试
 

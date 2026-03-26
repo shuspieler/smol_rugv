@@ -6,8 +6,9 @@ import rclpy
 from rclpy.node import Node
 import logging
 import time
-from std_msgs.msg import Header, Float32
+from std_msgs.msg import Header, Float32, Bool
 from sensor_msgs.msg import Imu, MagneticField
+from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 import math
 
@@ -129,7 +130,18 @@ class ugv_bringup(Node):
         # Timer to periodically execute the feedback loop
         if not self.test_mode:
             self.feedback_timer = self.create_timer(0.001, self.feedback_loop)
-        self.get_logger().info("ugv_bringup ready — publishing imu/data_raw, imu/mag, odom/odom_raw, voltage")
+
+        # Subscribe to velocity commands and forward to chassis via existing serial connection.
+        # ugv_driver is NOT launched separately to avoid serial port conflict.
+        self.cmd_vel_sub_ = self.create_subscription(Twist, 'cmd_vel', self._cmd_vel_callback, 10)
+        self.e_stop_active = False
+
+        # E-stop: chassis is the single gatekeeper — blocks ALL cmd_vel sources (VLA, debug, etc.)
+        self.create_subscription(Bool, 'e_stop', self._e_stop_callback, 10)
+        # Watchdog: while e_stop active, hammer zero every 50ms to override any lagging cmd_vel
+        self.create_timer(0.05, self._e_stop_watchdog)
+
+        self.get_logger().info("ugv_bringup ready — publishing imu/data_raw, imu/mag, odom/odom_raw, voltage | subscribing cmd_vel, e_stop")
 
     # Main loop for reading sensor feedback and publishing it to ROS topics
     def feedback_loop(self):
@@ -243,6 +255,40 @@ class ugv_bringup(Node):
         self.get_logger().info(
             f"[odom] vx={vx:.3f} wz={wz:.3f}  x={self.odom_x:.2f} y={self.odom_y:.2f} yaw={math.degrees(self.odom_yaw):.1f}°",
             throttle_duration_sec=5.0)
+
+    def _e_stop_callback(self, msg: Bool) -> None:
+        prev = self.e_stop_active
+        self.e_stop_active = bool(msg.data)
+        if self.e_stop_active and not prev:
+            # Immediately send zero to UART
+            self.base_controller.send_command({'T': 13, 'X': 0.0, 'Z': 0.0})
+            self.get_logger().warn("[chassis] !! E-STOP — chassis halted, all cmd_vel ignored !!")
+        elif not self.e_stop_active and prev:
+            self.get_logger().info("[chassis] E-STOP released — chassis accepting cmd_vel again")
+
+    def _e_stop_watchdog(self) -> None:
+        """While e_stop is active, keep sending zero every 50ms to suppress lagging cmd_vel."""
+        if self.e_stop_active and not self.test_mode:
+            self.base_controller.send_command({'T': 13, 'X': 0.0, 'Z': 0.0})
+
+    def _cmd_vel_callback(self, msg: Twist):
+        """Forward /cmd_vel to chassis UART using the same serial held by base_controller."""
+        if self.test_mode or self.e_stop_active:
+            return
+        vx = msg.linear.x
+        wz = msg.angular.z
+        # Apply minimum angular threshold when no linear motion (mirrored from ugv_driver)
+        if vx == 0.0:
+            if 0 < wz < 0.2:
+                wz = 0.2
+            elif -0.2 < wz < 0:
+                wz = -0.2
+        payload = {'T': 13, 'X': round(float(vx), 4), 'Z': round(float(wz), 4)}
+        self.base_controller.send_command(payload)
+        self.get_logger().info(
+            f"[cmd_vel→uart] vx={vx:.3f}  wz={wz:.3f}",
+            throttle_duration_sec=1.0,
+        )
 
     # Publish voltage data to the ROS topic "voltage"
     def publish_voltage(self):

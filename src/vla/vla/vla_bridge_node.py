@@ -51,7 +51,40 @@ class VLABridgeNode(Node):
             
         # Start Control Timer
         self.create_timer(1.0 / control_rate, self._control_loop)
-        
+
+        # Diagnostic status log every 5 seconds
+        self._status_count = 0
+        self.create_timer(5.0, self._status_log)
+
+    def _status_log(self):
+        self._status_count += 1
+        lines = [f"── VLA Status #{self._status_count} {'─' * 30}"]
+
+        # Per-topic Hz
+        hz = self.ros_io.get_topic_hz()
+        lines.append(
+            f"  Topics  │ camera={hz['image']:.1f}Hz  "
+            f"odom={hz['odom']:.1f}Hz  "
+            f"imu={hz['imu']:.1f}Hz  "
+            f"instr={hz['instruction']:.1f}Hz"
+        )
+
+        # Inference stats
+        if self.vla_loop is not None and not self.vla_loop_error:
+            s = self.vla_loop.get_stats()
+            if s["last_action"]:
+                action_str = f"vx={s['last_action'][0]:+.3f}  wz={s['last_action'][1]:+.3f}"
+            else:
+                action_str = "N/A (no inference yet)"
+            lines.append(
+                f"  Infer   │ #{s['infer_count']}  last={s['last_infer_ms']:.0f}ms  "
+                f"queue={s['queue_depth']}  action=[{action_str}]"
+            )
+        else:
+            lines.append("  Infer   │ DEGRADED (model not loaded)")
+
+        self.get_logger().info("\n".join(lines))
+
     def _control_loop(self):
         """
         Consumes actions from the queue and publishes them.

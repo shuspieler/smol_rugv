@@ -25,7 +25,16 @@
 ## Sprint 6（待执行）
 - [ ] 上机验证 ugv_bringup：ros2 topic echo /odom/odom_raw，确认里程计正常累积
 - [ ] 上机验证 ugv_driver：ros2 topic pub /cmd_vel，确认底盘响应
-- [ ] 验证 e_stop watchdog：发布 /e_stop true 后底盘是否持续发零速（50ms 间隔）
+- [x] 验证 e_stop watchdog：发布 /e_stop true 后底盘持续发零速（50ms 间隔）——已通过空格键实测
 - [ ] 验证 wheel_base 参数配置后 /odom/odom_raw 的 angular.z 是否正确
 - [ ] 压力测试：长时运行里程计累积是否有漂移
 - [ ] 用 --log-level DEBUG 启动 ugv_driver，确认 serial TX JSON 打印正常
+
+## Sprint 5.6 / cmd_vel + e_stop 整合（2026-XX-XX）
+- [done] 废弃 ugv_driver 独立运行（与 ugv_bringup 共享 /dev/ttyCH341USB0 会冲突）
+- [done] 在 ugv_bringup 新增 /cmd_vel 订阅 → _cmd_vel_callback → base_controller.send_command({"T":13,"X":vx,"Z":wz})
+- [done] 新增最小角速度门限保护：|wz| 在 (0, 0.2) 时钳制为 ±0.2 防止死区
+- [done] 新增 /e_stop Bool 订阅 → _e_stop_callback 设置 e_stop_active flag
+- [done] 新增 50ms watchdog timer → _e_stop_watchdog：e_stop 激活期间持续发零速到串口
+- [done] _cmd_vel_callback 在 e_stop_active=True 时立即 return，拒绝 VLA 速度指令
+- [done] 端到端验证：VLA 40Hz 推理期间空格键急停可靠生效

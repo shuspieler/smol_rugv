@@ -21,4 +21,10 @@
 - 已完成 Sprint 5.5 升级：keyboard 包升级为 debug，keyboard_node 升级为 debug_node，新增订阅 /camera/image_raw、OSD 叠加、内置 MJPEG HTTP 服务（http://<robot-ip>:8080/），更新所有相关文档与 launch 配置
 - 已明确 e_stop 人为触发链路：由 keyboard_node 发布 /e_stop，chassis 内置仲裁订阅响应
 - 已修复 VLA 推理 OOM：将 PYTORCH_NO_CUDA_MEMORY_CACHING=1 提升到 smol_vla_policy.py 模块级（import torch 之前），确保首次 CUDA 分配即使用 raw cudaMalloc，规避 Jetson nvmap CMA 连续内存限制
+- 已完成 VLA 独立推理验证：20 步测试平均 11ms/步，Git milestone 提交 ccf6d24，分支 milestone/smolvla-first-working
+- 已完成 VLA ROS 节点端到端调试：相机 25Hz、odom/imu 20Hz 确认，VLA 推理 22-26ms/步稳定运行
+- 已修复图像管道（ros_io.py）：bypass cv_bridge（Boost.Python 版本冲突），改用 np.frombuffer()+msg.step 处理 row padding，BGR→RGB flip，HWC→CHW transpose；外来编码（yuv/bayer）才回 fallback cv_bridge
+- 已整合底盘 cmd_vel 转发：架构决策——ugv_driver 不启动（与 ugv_bringup 共享串口会冲突），cmd_vel 转发逻辑统一集成到 ugv_bringup.py；发送 JSON {"T":13,"X":vx,"Z":wz}
+- 已实现 e_stop 可靠急停：ugv_bringup 订阅 /e_stop Bool，50ms watchdog 持续发零速，_cmd_vel_callback 在 e_stop_active 时立即返回；VLA 节点不感知 e_stop，chassis 节点为唯一仲裁门
+- 已端到端验证：VLA 控制小车运动，空格键急停可靠生效
 </toolcall_result>

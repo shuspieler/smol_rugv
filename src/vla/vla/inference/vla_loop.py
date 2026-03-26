@@ -46,9 +46,10 @@ class VLALoop(threading.Thread):
         self.has_warned_action_dim = False
 
         # Diagnostic stats (read by vla_bridge_node status timer)
-        self._infer_count   = 0
-        self._last_infer_ms = 0.0
-        self._last_action   = None  # [vx, wz] of action[0] from last inference
+        self._infer_count     = 0
+        self._last_infer_ms   = 0.0
+        self._last_action     = None  # [vx, wz] of action[0] from last inference
+        self._last_chunk_size = 0     # T: number of action steps output by last inference
 
     def run(self):
         self.running = True
@@ -145,7 +146,8 @@ class VLALoop(threading.Thread):
             self.logger.error(f"Action dimension {action.shape[1]} is too small for UGV (needs 2: vx, wz).")
             return
 
-        self._last_action = [float(action[0, 0]), float(action[0, 1])]
+        self._last_action     = [float(action[0, 0]), float(action[0, 1])]
+        self._last_chunk_size = action.shape[0]
         self.action_queue.put_chunk(action)
         self.logger.debug(
             f"[infer #{self._infer_count}] {self._last_infer_ms:.0f}ms  "
@@ -156,10 +158,11 @@ class VLALoop(threading.Thread):
     def get_stats(self) -> dict:
         """Return current diagnostic stats (safe for cross-thread reads)."""
         return {
-            "infer_count":   self._infer_count,
-            "last_infer_ms": self._last_infer_ms,
-            "queue_depth":   self.action_queue.remaining(),
-            "last_action":   self._last_action,
+            "infer_count":     self._infer_count,
+            "last_infer_ms":   self._last_infer_ms,
+            "queue_depth":     self.action_queue.remaining(),
+            "last_action":     self._last_action,
+            "last_chunk_size": self._last_chunk_size,
         }
 
     def stop(self):

@@ -53,7 +53,9 @@ class VLABridgeNode(Node):
         self.create_timer(1.0 / control_rate, self._control_loop)
 
         # Diagnostic status log every 5 seconds
-        self._status_count = 0
+        self._status_count  = 0
+        self._ctrl_total    = 0   # total _control_loop calls
+        self._starved_count = 0   # calls where queue was empty (→ zero-vel)
         self.create_timer(5.0, self._status_log)
 
     def _status_log(self):
@@ -76,9 +78,17 @@ class VLABridgeNode(Node):
                 action_str = f"vx={s['last_action'][0]:+.3f}  wz={s['last_action'][1]:+.3f}"
             else:
                 action_str = "N/A (no inference yet)"
+            # Starvation: how often did control_loop find an empty queue this window
+            starved = self._starved_count
+            total   = self._ctrl_total
+            starve_pct = (starved / total * 100.0) if total > 0 else 0.0
+            self._starved_count = 0  # reset window
+            self._ctrl_total    = 0
             lines.append(
                 f"  Infer   │ #{s['infer_count']}  last={s['last_infer_ms']:.0f}ms  "
-                f"queue={s['queue_depth']}  action=[{action_str}]"
+                f"chunk={s['last_chunk_size']}  "
+                f"starved={starved}/{total}({starve_pct:.0f}%)  "
+                f"action=[{action_str}]"
             )
         else:
             lines.append("  Infer   │ DEGRADED (model not loaded)")
@@ -95,12 +105,14 @@ class VLABridgeNode(Node):
             self.ros_io.publish_cmd_vel(0.0, 0.0)
             return
             
+        self._ctrl_total += 1
         action = self.action_queue.get_next_action()
         if action:
             vx, wz = action
             self.ros_io.publish_cmd_vel(vx, wz)
         else:
             # If queue is empty (inference too slow or stopped), stop the robot for safety
+            self._starved_count += 1
             self.ros_io.publish_cmd_vel(0.0, 0.0)
 
     def destroy_node(self):

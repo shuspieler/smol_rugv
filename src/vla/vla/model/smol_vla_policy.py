@@ -232,16 +232,35 @@ class SmolVLAPolicyWrapper:
             else:
                 batch_on_device[k] = v
         with torch.no_grad():
-            # lerobot's sample_noise() uses float32, matching the action expert heads
-            # which are also float32. Pass noise explicitly to be safe.
             actions_shape = (
                 1,
                 self.policy.config.chunk_size,
                 self.policy.config.max_action_dim,
             )
             noise = torch.randn(actions_shape, dtype=torch.float32, device=self.device)
-            action = self.policy.select_action(batch_on_device, noise=noise)
-            return action
+
+            # Use select_action() — it has @torch.no_grad() which keeps inference
+            # fast (~25ms).  predict_action_chunk() lacks that decorator and causes
+            # PyTorch to build a full autograd graph, ballooning inference to ~5700ms.
+            #
+            # select_action() fills SmolVLA's internal ACTION deque (chunk_size items)
+            # and pops item[0].  We immediately drain the remaining items and reassemble
+            # the full (1, N, D) chunk for our own ActionQueue (RHC).
+            # Clearing the internal deque ensures the NEXT call always triggers fresh
+            # inference instead of serving stale cached actions.
+            first_action = self.policy.select_action(batch_on_device, noise=noise)
+            # first_action: (1, action_dim)
+
+            internal_q = self.policy._queues.get("action")
+            if internal_q:
+                remaining = list(internal_q)   # [(1, D), …]  up to chunk_size-1 items
+                internal_q.clear()
+            else:
+                remaining = []
+
+            all_actions = [first_action] + remaining  # list of (1, D) tensors
+            chunk = torch.stack(all_actions, dim=1)   # (1, N, D)
+            return chunk
 
     def postprocess(self, action: torch.Tensor) -> torch.Tensor:
         """

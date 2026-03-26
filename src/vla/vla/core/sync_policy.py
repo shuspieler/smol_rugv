@@ -1,15 +1,14 @@
 import time
-from typing import Dict, Any
-import logging
+from typing import Dict, Any, Optional, Any as LoggerType
 
 class SyncPolicy:
     """
     Policy to determine if the current snapshot of data is valid for inference.
     """
-    def __init__(self, image_timeout: float = 0.5, odom_timeout: float = 0.2):
+    def __init__(self, image_timeout: float = 0.5, odom_timeout: float = 0.2, logger: Optional[LoggerType] = None):
         self.image_timeout = image_timeout
         self.odom_timeout = odom_timeout
-        self.logger = logging.getLogger("SyncPolicy")
+        self.logger = logger  # Accept optional ROS logger
 
     def is_valid(self, snapshot: Dict[str, Any], current_time: float) -> bool:
         """
@@ -23,20 +22,28 @@ class SyncPolicy:
         
         # 1. Check Image existence and freshness
         if data["image"] is None:
-            # self.logger.warning("No image data available.")
+            if self.logger:
+                self.logger.debug("No image data available.")
             return False
             
-        if current_time - timestamps["image"] > self.image_timeout:
-            # self.logger.warning(f"Image data is stale. Delay: {current_time - timestamps['image']:.3f}s")
+        image_age = current_time - timestamps["image"]
+        if image_age > self.image_timeout:
+            if self.logger:
+                self.logger.debug(f"Image data is stale. Delay: {image_age:.3f}s")
             return False
 
         # 2. Check Odom existence (optional, depending on whether model strictly needs it)
         # For SmolVLA, proprioception is usually required.
         if data["odom"] is None:
+            if self.logger:
+                self.logger.debug("No odom data available.")
             return False
             
         # Odom is high frequency, should be very fresh
-        if current_time - timestamps["odom"] > self.odom_timeout:
+        odom_age = current_time - timestamps["odom"]
+        if odom_age > self.odom_timeout:
+            if self.logger:
+                self.logger.debug(f"Odom data is stale. Delay: {odom_age:.3f}s")
             return False
 
         return True

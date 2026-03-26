@@ -20,4 +20,5 @@
 - 已完成 ugv_data_collector 收尾清理：移除控制链路残留兼容参数与 Enter 文案，确保文档与运行行为一致
 - 已完成 Sprint 5.5 升级：keyboard 包升级为 debug，keyboard_node 升级为 debug_node，新增订阅 /camera/image_raw、OSD 叠加、内置 MJPEG HTTP 服务（http://<robot-ip>:8080/），更新所有相关文档与 launch 配置
 - 已明确 e_stop 人为触发链路：由 keyboard_node 发布 /e_stop，chassis 内置仲裁订阅响应
+- 已修复 VLA 推理 OOM：将 PYTORCH_NO_CUDA_MEMORY_CACHING=1 提升到 smol_vla_policy.py 模块级（import torch 之前），确保首次 CUDA 分配即使用 raw cudaMalloc，规避 Jetson nvmap CMA 连续内存限制
 </toolcall_result>

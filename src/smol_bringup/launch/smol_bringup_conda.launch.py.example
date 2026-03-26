@@ -1,0 +1,48 @@
+# 【混合 Python 环境】VLA 节点启动方案
+# 在 launch.py 中用 ExecuteProcess 启动 VLA，指定虚拟环境 Python
+# 其他节点继续用 Node() 和系统 Python
+
+from launch import LaunchDescription
+from launch.actions import TimerAction, GroupAction, ExecuteProcess
+from launch.conditions import IfCondition
+from launch.substitutions import LaunchConfiguration
+
+def generate_launch_description():
+    # 使用 ExecuteProcess 在虚拟环境中启动 VLA
+    vla_bridge_node = ExecuteProcess(
+        cmd=[
+            '/home/jetson/miniforge3/envs/lerobot2/bin/python3',
+            '-m', 'vla.vla_bridge_node'
+        ],
+        name='vla_bridge_node',
+        output='screen',
+        # 设置 ROS2 必要的环境变量
+        env={
+            'ROS_DOMAIN_ID': '0',
+            'ROS_LOG_DIR': '/tmp/ros2_logs',
+        }
+    )
+
+    vla_group = GroupAction(
+        condition=IfCondition(LaunchConfiguration('enable_vla', default='true')),
+        actions=[TimerAction(period=4.0, actions=[vla_bridge_node])],
+    )
+
+    return LaunchDescription([
+        vla_group,
+    ])
+
+# 使用方法：
+# ros2 launch smol_bringup smol_bringup_conda.launch.py
+# 或
+# ros2 launch smol_bringup smol_bringup_conda.launch.py enable_vla:=true
+
+# 优点：
+# 1. VLA 节点使用虚拟环境的所有依赖（torch, transformers 等）
+# 2. 其他节点仍使用系统 Python（无冲突）
+# 3. 不需要编写 wrapper 脚本
+# 4. 易于调试：直接看到虚拟环境的 Python 进程
+
+# 注意：
+# - /home/jetson/miniforge3/envs/lerobot2/ 需要改为实际的虚拟环境路径
+# - ROS_DOMAIN_ID 根据实际需要调整

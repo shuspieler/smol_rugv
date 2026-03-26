@@ -1,5 +1,17 @@
 import sys
 import os
+
+# ── Jetson Orin CUDA allocator fix (MUST run before `import torch`) ──────────
+# Jetson's nvmap kernel driver cannot satisfy the large contiguous allocations
+# that PyTorch's CUDACachingAllocator requests on unified memory (CMA pool is
+# only 256 MB).  Disabling the caching allocator forces per-tensor cudaMalloc,
+# which succeeds because individual tensors are small.  The overhead is
+# negligible for inference workloads.
+# `expandable_segments:True` does NOT help — the nvmap failure occurs at the
+# CUDA driver level, below any PyTorch allocator strategy.
+os.environ.setdefault('PYTORCH_NO_CUDA_MEMORY_CACHING', '1')
+# ─────────────────────────────────────────────────────────────────────────────
+
 import torch
 import logging
 from typing import Tuple, Dict, Any
@@ -50,10 +62,96 @@ class SmolVLAPolicyWrapper:
         self.device = torch.device(device)
         
         self.logger.info(f"Loading SmolVLA model: {model_id} on {self.device}...")
-        
+
         try:
-            # Load pretrained policy
-            self.policy = SmolVLAPolicy.from_pretrained(model_id)
+            # ── Jetson CUDA fix: force VLM backbone to load on CPU ────────────────
+            # transformers 4.50+ uses meta-device loading (device_map dispatch) and
+            # caching_allocator_warmup, both of which crash on Jetson's unified-memory
+            # CUDA driver (NvMapMemAllocInternalTagged error 12 / CUDACachingAllocator
+            # assert failure).
+            # Fix: patch the AutoModelForImageTextToText reference *inside*
+            # smolvlm_with_expert's module namespace (it was imported at module load
+            # time, so patching transformers.AutoModelForImageTextToText has no effect).
+            # After CPU loading we move the whole policy to the target device normally.
+            _patched_vlm = False
+            _patched_st = False
+            _patched_module_to = False
+            try:
+                # Patch 1: transformers AutoModelForImageTextToText → force CPU
+                # (smolvlm_with_expert imports it at module level, so patch the
+                #  module-namespace reference, not transformers.Auto…)
+                import lerobot.policies.smolvla.smolvlm_with_expert as _smolvlm_mod
+                _orig_auto_cls = _smolvlm_mod.AutoModelForImageTextToText
+
+                class _CPUOnlyAutoModel:
+                    @classmethod
+                    def from_pretrained(cls, m, **kw):
+                        kw['device_map'] = 'cpu'
+                        return _orig_auto_cls.from_pretrained(m, **kw)
+
+                _smolvlm_mod.AutoModelForImageTextToText = _CPUOnlyAutoModel
+                _patched_vlm = True
+
+                # Patch 2: safetensors load_file → force CPU
+                # lerobot's pretrained.py loads the fine-tuned checkpoint via
+                # safetensors.torch.load_file(filename, device=config.device)
+                # where config.device is "cuda". We force "cpu" here too.
+                import safetensors.torch as _st_mod
+                _orig_st_load_file = _st_mod.load_file
+
+                def _cpu_load_file(filename, device=None, **kw):
+                    return _orig_st_load_file(filename, device="cpu", **kw)
+
+                _st_mod.load_file = _cpu_load_file
+                _patched_st = True
+
+                # Patch 3: torch.nn.Module.to → intercept .to("cuda") calls
+                # lerobot's pretrained.py calls policy.to(config.device) at the end
+                # of from_pretrained. We block all CUDA moves during the load; our
+                # wrapper does the real .to(self.device) afterwards.
+                import torch.nn as _nn_mod
+                _orig_module_to = _nn_mod.Module.to
+
+                def _noop_cuda_module_to(self_mod, *args, **kwargs):
+                    # If the target is a CUDA device, skip — do nothing
+                    dest = args[0] if args else kwargs.get('device', None)
+                    if dest is not None:
+                        if isinstance(dest, str) and dest.startswith("cuda"):
+                            return self_mod
+                        if isinstance(dest, torch.device) and dest.type == "cuda":
+                            return self_mod
+                    return _orig_module_to(self_mod, *args, **kwargs)
+
+                _nn_mod.Module.to = _noop_cuda_module_to
+                _patched_module_to = True
+
+                self.logger.info("Jetson patch: all weights will load to CPU first.")
+            except Exception as _pe:
+                self.logger.warning(f"Jetson CPU-load patch could not be applied: {_pe}")
+            # ──────────────────────────────────────────────────────────────────────
+
+            try:
+                self.policy = SmolVLAPolicy.from_pretrained(model_id)
+            finally:
+                if _patched_vlm:
+                    _smolvlm_mod.AutoModelForImageTextToText = _orig_auto_cls
+                if _patched_st:
+                    _st_mod.load_file = _orig_st_load_file
+                if _patched_module_to:
+                    _nn_mod.Module.to = _orig_module_to
+
+            self.logger.info(f"Model loaded to CPU, normalising to float32 on CPU then moving to {self.device}...")
+            # Normalise all weights to float32 while still on CPU (cheap, no CUDA alloc).
+            # The VLM backbone loads as bfloat16 (lerobot's torch_dtype setting); action
+            # heads are already float32.  Unifying on CPU avoids a double-allocation on
+            # the device.
+            self.policy.float()
+            # Pre-warm the CUDA context with a trivial tensor so the caching
+            # allocator initialises before moving the full model.
+            if self.device.type == 'cuda':
+                _warm = torch.zeros(1, device=self.device)
+                del _warm
+                torch.cuda.empty_cache()
             self.policy.to(self.device)
             
             # --- VLA Adaptation for UGV ---
@@ -76,11 +174,6 @@ class SmolVLAPolicyWrapper:
                 )
             # -----------------------------
 
-            # FP16 Optimization for CUDA
-            if self.device.type == 'cuda':
-                self.logger.info("Converting model to FP16 for optimization.")
-                self.policy.half()
-            
             self.policy.eval()
             
             # Initialize processors
@@ -119,8 +212,35 @@ class SmolVLAPolicyWrapper:
         Returns:
             Action tensor (normalized).
         """
+        # Move all tensors to model device (preprocess pipeline may leave some on CPU).
+        # Add batch dim if missing (preprocess returns unbatched tensors for single obs).
+        # Cast uint8 images to float32; model is fully float32 (policy.float() in __init__).
+        model_dtype = next(self.policy.parameters()).dtype  # expected: float32
+        batch_on_device = {}
+        for k, v in batch.items():
+            if isinstance(v, torch.Tensor):
+                t = v.to(self.device)
+                # Add batch dimension: images (3,H,W)→(1,3,H,W), state (D,)→(1,D)
+                if t.ndim == 3 and k.startswith('observation.images'):
+                    t = t.unsqueeze(0)
+                elif t.ndim == 1 and k == 'observation.state':
+                    t = t.unsqueeze(0)
+                # Only cast uint8 images to float32; leave everything else as-is
+                if t.dtype == torch.uint8:
+                    t = t.to(torch.float32)
+                batch_on_device[k] = t
+            else:
+                batch_on_device[k] = v
         with torch.no_grad():
-            action = self.policy.select_action(batch)
+            # lerobot's sample_noise() uses float32, matching the action expert heads
+            # which are also float32. Pass noise explicitly to be safe.
+            actions_shape = (
+                1,
+                self.policy.config.chunk_size,
+                self.policy.config.max_action_dim,
+            )
+            noise = torch.randn(actions_shape, dtype=torch.float32, device=self.device)
+            action = self.policy.select_action(batch_on_device, noise=noise)
             return action
 
     def postprocess(self, action: torch.Tensor) -> torch.Tensor:

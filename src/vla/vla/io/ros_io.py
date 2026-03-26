@@ -86,40 +86,52 @@ class ROSIO:
             self.node.get_logger().error(f"Image conversion failed: {e}")
 
     def _odom_callback(self, msg: Odometry):
-        # Store odom data as a dict of numpy arrays
-        state = {
-            "position": np.array([msg.pose.pose.position.x, msg.pose.pose.position.y, msg.pose.pose.position.z]),
-            "orientation": np.array([
-                msg.pose.pose.orientation.x, 
-                msg.pose.pose.orientation.y, 
-                msg.pose.pose.orientation.z, 
-                msg.pose.pose.orientation.w
-            ]),
-            "linear_velocity": np.array([msg.twist.twist.linear.x, msg.twist.twist.linear.y, msg.twist.twist.linear.z]),
-            "angular_velocity": np.array([msg.twist.twist.angular.x, msg.twist.twist.angular.y, msg.twist.twist.angular.z])
-        }
-        timestamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
-        self.buffer.update("odom", state, timestamp)
+        try:
+            # Store odom data as a dict of numpy arrays
+            state = {
+                "position": np.array([msg.pose.pose.position.x, msg.pose.pose.position.y, msg.pose.pose.position.z]),
+                "orientation": np.array([
+                    msg.pose.pose.orientation.x, 
+                    msg.pose.pose.orientation.y, 
+                    msg.pose.pose.orientation.z, 
+                    msg.pose.pose.orientation.w
+                ]),
+                "linear_velocity": np.array([msg.twist.twist.linear.x, msg.twist.twist.linear.y, msg.twist.twist.linear.z]),
+                "angular_velocity": np.array([msg.twist.twist.angular.x, msg.twist.twist.angular.y, msg.twist.twist.angular.z])
+            }
+            timestamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+            self.buffer.update("odom", state, timestamp)
+        except (AttributeError, ValueError, TypeError) as e:
+            self.node.get_logger().error(f"Odom parsing failed: {e}", throttle_duration_sec=1.0)
 
     def _imu_callback(self, msg: Imu):
-        data = {
-            "orientation": np.array([
-                msg.orientation.x, 
-                msg.orientation.y, 
-                msg.orientation.z, 
-                msg.orientation.w
-            ]),
-            "angular_velocity": np.array([msg.angular_velocity.x, msg.angular_velocity.y, msg.angular_velocity.z]),
-            "linear_acceleration": np.array([msg.linear_acceleration.x, msg.linear_acceleration.y, msg.linear_acceleration.z])
-        }
-        timestamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
-        self.buffer.update("imu", data, timestamp)
+        try:
+            data = {
+                "orientation": np.array([
+                    msg.orientation.x, 
+                    msg.orientation.y, 
+                    msg.orientation.z, 
+                    msg.orientation.w
+                ]),
+                "angular_velocity": np.array([msg.angular_velocity.x, msg.angular_velocity.y, msg.angular_velocity.z]),
+                "linear_acceleration": np.array([msg.linear_acceleration.x, msg.linear_acceleration.y, msg.linear_acceleration.z])
+            }
+            timestamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+            self.buffer.update("imu", data, timestamp)
+        except (AttributeError, ValueError, TypeError) as e:
+            self.node.get_logger().error(f"IMU parsing failed: {e}", throttle_duration_sec=1.0)
 
     def _instruction_callback(self, msg: String):
-        # Use current system time as instructions don't always have header
-        timestamp = self.node.get_clock().now().nanoseconds * 1e-9
-        self.buffer.update("instruction", msg.data, timestamp)
-        self.node.get_logger().info(f"Received instruction: {msg.data}")
+        try:
+            # Use current system time as instructions don't always have header
+            timestamp = self.node.get_clock().now().nanoseconds * 1e-9
+            if not isinstance(msg.data, str) or not msg.data.strip():
+                self.node.get_logger().debug("Received empty or invalid instruction, skipping.")
+                return
+            self.buffer.update("instruction", msg.data, timestamp)
+            self.node.get_logger().info(f"Received instruction: {msg.data}")
+        except (AttributeError, ValueError, TypeError) as e:
+            self.node.get_logger().error(f"Instruction parsing failed: {e}", throttle_duration_sec=1.0)
 
     def publish_cmd_vel(self, linear: float, angular: float):
         msg = Twist()

@@ -54,6 +54,11 @@ class ActionQueue:
                 return None
             return self._queue.popleft()
     
+    def remaining(self) -> int:
+        """Return the number of actions remaining in the queue."""
+        with self._lock:
+            return len(self._queue)
+
     def clear(self):
         with self._lock:
             self._queue.clear()

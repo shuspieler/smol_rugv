@@ -44,3 +44,4 @@ data/raw/
 
 # Test / tool output
 tools/ugv_ctrl_tester/output/
+models/

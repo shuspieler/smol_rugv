@@ -1,7 +1,6 @@
 import threading
 import time
 import torch
-import logging
 import numpy as np
 from typing import Any
 
@@ -16,6 +15,12 @@ class VLALoop(threading.Thread):
     Main inference loop running in a separate thread.
     Fetches data from buffer -> Preprocesses -> Runs Model -> Pushes Action Chunk to Queue.
     """
+    # Trigger a new inference when the queue drops below this many steps.
+    # With chunk_size=50 and control_rate=20Hz, 50 steps = 2.5s of actions.
+    # Triggering at 10 steps (~0.5s remaining) gives enough lead time for inference.
+    REFILL_THRESHOLD = 10
+    POLL_INTERVAL = 0.02  # 20ms polling loop
+
     def __init__(self, 
                  buffer: SharedBuffer, 
                  action_queue: ActionQueue,
@@ -28,61 +33,81 @@ class VLALoop(threading.Thread):
         self.io = io
         self.frequency = frequency
         self.running = False
-        self.logger = logging.getLogger("VLALoop")
+        self.logger = io.node.get_logger()  # Use ROS logger from io.node
         
         # Initialize components
-        self.sync_policy = SyncPolicy()
+        self.sync_policy = SyncPolicy(logger=self.logger)
         self.input_mapper = InputMapper()
         
         self.logger.info("Initializing VLA Model (this may take time)...")
         self.model = SmolVLAPolicyWrapper(model_id)
         
         # State flags
-        self.has_warned_action_dim = False 
+        self.has_warned_action_dim = False
         
     def run(self):
         self.running = True
-        self.logger.info("VLA Inference Loop started.")
-        
-        period = 1.0 / self.frequency
-        
+        self.logger.info(
+            f"VLA Inference Loop started (refill_threshold={self.REFILL_THRESHOLD} steps, "
+            f"poll_interval={self.POLL_INTERVAL*1000:.0f}ms)."
+        )
+
         while self.running:
-            start_time = time.time()
-            
-            try:
-                self._step()
-            except Exception as e:
-                self.logger.error(f"Error in inference loop: {e}")
-                
-            elapsed = time.time() - start_time
-            sleep_time = max(0, period - elapsed)
-            time.sleep(sleep_time)
+            # Trigger inference only when the queue is running low.
+            # This adapts naturally to the actual inference latency on the hardware.
+            if self.action_queue.remaining() < self.REFILL_THRESHOLD:
+                try:
+                    self._step()
+                except Exception as e:
+                    self.logger.error(f"Error in inference loop: {e}")
+
+            time.sleep(self.POLL_INTERVAL)
 
     def _step(self):
-        # 1. Get data
-        snapshot = self.buffer.get_snapshot()
-        
-        # 2. Validate
-        # Use ROS time for sync check
-        current_time = self.io.node.get_clock().now().nanoseconds * 1e-9
-        if not self.sync_policy.is_valid(snapshot, current_time):
-            # Data not fresh enough, skip inference
-            return
+        try:
+            # 1. Get data
+            snapshot = self.buffer.get_snapshot()
+            
+            # 2. Validate
+            # Use ROS time for sync check
+            current_time = self.io.node.get_clock().now().nanoseconds * 1e-9
+            if not self.sync_policy.is_valid(snapshot, current_time):
+                # Data not fresh enough, skip inference
+                # (logging is handled within sync_policy.is_valid)
+                return
 
-        # 3. Map inputs
-        features = self.input_mapper.map(snapshot["data"])
-        
-        # 4. Preprocess (to Tensor)
-        features_tensor = self.model.preprocess(features)
-        
-        # 5. Inference
-        action_tensor = self.model.step(features_tensor)
-        
-        # 6. Postprocess
-        action_numpy = self.model.postprocess(action_tensor)
-        
-        # 7. Push to Queue
-        self._push_to_queue(action_numpy)
+            # 3. Map inputs
+            try:
+                features = self.input_mapper.map(snapshot["data"])
+            except Exception as e:
+                self.logger.error(f"Input mapping failed: {e}")
+                return
+            
+            # 4. Preprocess (to Tensor)
+            try:
+                features_tensor = self.model.preprocess(features)
+            except Exception as e:
+                self.logger.error(f"Preprocessing failed: {e}")
+                return
+            
+            # 5. Inference
+            try:
+                action_tensor = self.model.step(features_tensor)
+            except Exception as e:
+                self.logger.error(f"Model inference failed: {e}")
+                return
+            
+            # 6. Postprocess
+            try:
+                action_numpy = self.model.postprocess(action_tensor)
+            except Exception as e:
+                self.logger.error(f"Postprocessing failed: {e}")
+                return
+            
+            # 7. Push to Queue
+            self._push_to_queue(action_numpy)
+        except Exception as e:
+            self.logger.error(f"Unexpected error in inference step: {e}")
 
     def _push_to_queue(self, action: Any):
         # Convert to CPU numpy if needed

@@ -1,6 +1,5 @@
 import rclpy
 from rclpy.node import Node
-import sys
 import logging
 
 from vla.io.ros_io import ROSIO
@@ -27,6 +26,8 @@ class VLABridgeNode(Node):
         self.buffer = SharedBuffer()
         self.action_queue = ActionQueue(max_len=100)
         self.ros_io = ROSIO(self, self.buffer)
+        self.vla_loop = None
+        self.vla_loop_error = False
         
         # Start Inference Thread
         try:
@@ -38,11 +39,15 @@ class VLABridgeNode(Node):
                 frequency=inference_rate
             )
             self.vla_loop.start()
+            self.get_logger().info("VLA inference loop started successfully.")
         except Exception as e:
-            self.get_logger().fatal(f"Failed to start VLA Loop: {e}")
-            # We don't exit strictly here to allow ROS spin to clean up, 
-            # but in production this should trigger a restart.
-            raise e
+            self.get_logger().error(f"Failed to start VLA Loop: {e}")
+            self.get_logger().warn(
+                "VLA node will operate in degraded mode: publishing zero velocity commands only. "
+                "Check logs and model availability."
+            )
+            self.vla_loop_error = True
+            # Note: We do NOT raise here. Node continues (like camera_node does with no device found).
             
         # Start Control Timer
         self.create_timer(1.0 / control_rate, self._control_loop)
@@ -50,7 +55,13 @@ class VLABridgeNode(Node):
     def _control_loop(self):
         """
         Consumes actions from the queue and publishes them.
+        If VLA failed to initialize, publishes safe zero velocity.
         """
+        if self.vla_loop_error:
+            # Degraded mode: publish zero velocity for safety
+            self.ros_io.publish_cmd_vel(0.0, 0.0)
+            return
+            
         action = self.action_queue.get_next_action()
         if action:
             vx, wz = action
@@ -60,9 +71,14 @@ class VLABridgeNode(Node):
             self.ros_io.publish_cmd_vel(0.0, 0.0)
 
     def destroy_node(self):
-        self.get_logger().info("Stopping VLA Loop...")
-        if hasattr(self, 'vla_loop'):
+        self.get_logger().info("Stopping VLA Bridge Node...")
+        if self.vla_loop is not None and not self.vla_loop_error:
+            self.get_logger().info("Stopping VLA inference loop...")
             self.vla_loop.stop()
+            # Wait for thread with timeout to prevent hang on ARM64
+            self.vla_loop.join(timeout=2.0)
+            if self.vla_loop.is_alive():
+                self.get_logger().warn("VLA loop thread did not terminate within timeout.")
         super().destroy_node()
 
 def main(args=None):
@@ -70,7 +86,7 @@ def main(args=None):
     logging.basicConfig(level=logging.INFO)
     
     rclpy.init(args=args)
-    
+    node = None
     try:
         node = VLABridgeNode()
         rclpy.spin(node)
@@ -79,9 +95,10 @@ def main(args=None):
     except Exception as e:
         print(f"Node exited with error: {e}")
     finally:
-        if 'node' in locals():
+        if node is not None:
             node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 if __name__ == '__main__':
     main()

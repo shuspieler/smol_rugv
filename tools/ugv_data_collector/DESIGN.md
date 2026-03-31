@@ -99,7 +99,15 @@
 | `x.vel` | `float` | 目标线速度（m/s），范围 [-max_linear, max_linear] |
 | `w.vel` | `float` | 目标角速度（rad/s），范围 [-max_angular, max_angular] |
 
-> **重要对齐说明**：`observation.images.camera` 这个 key 需与 `src/vla/vla/inference/preprocess.py` 中的 `self.image_key` 保持一致。训练完成部署时需将 `preprocess.py` 中的 key 从 `"observation.images.laptop"` 改为 `"observation.images.camera"`。
+> **重要对齐说明**：`observation.images.camera` 这个 key 需与 `src/vla/vla/inference/preprocess.py` 中的 `self.image_key` 保持一致。
+> 
+> 当前 `preprocess.py` 配置的是临时借用的 aloha_mobile 预训练模型（6D state、3摄像头），用于在专属模型训练完成前验证推理链路。
+> 
+> **训练完成后，部署时需修改 `preprocess.py` 以下内容**（详见第八节）：
+> - `image_key`: `"observation.images.camera1"` → `"observation.images.camera"`
+> - `_MODEL_STATE_DIM`: `6` → `2`
+> - 移除 `camera2`/`camera3` 零图像占位逻辑
+> - `state_vec` 由 `np.zeros(6)` 填充改为 `np.array([vx, wz])`
 
 ### 4.3 串口协议
 
@@ -115,9 +123,9 @@
 ```json
 {"T": 1001, "L": ..., "R": ..., "ax": ..., "ay": ..., "az": ..., "gx": ..., "gy": ..., "gz": ..., "odl": ..., "odr": ..., "v": ...}
 ```
-- `odl`/`odr`: 左右轮里程计增量（**cm**，ESP32 内部已由 tick 转换）
+- `odl`/`odr`: 左右轮里程计**累积值**（cm，随行驶单调递增；ESP32 固件内由 encoder tick 转换，上位机通过相邻两帧差分得到位移增量）
 - `gx`/`gy`/`gz`: 陀螺仪角速度（deg/s）
-- 由里程计增量 + 轮距参数计算 vx 和 wz
+- 由里程计累积值差分 + 轮距参数计算 vx 和 wz（与官方 ROS 驱动 base_node_ekf.cpp 算法一致）
 
 ---
 
@@ -133,7 +141,7 @@
 | `D` | 右转（-angular） |
 | `Q` | 提高速度档 |
 | `E` | 降低速度档 |
-| `Space` | 急停（发送零速度） |
+| `Space` | 急停（发送零速度，同时暂停帧写入，避免噪声数据进入数据集；重按 WASD 自动恢复录制） |
 | `Enter` | 开始录制 / 结束当前 episode（手动模式） |
 | `Esc` / `Ctrl+C` | 退出采集 |
 
@@ -207,12 +215,25 @@ src/vla/vla/inference/preprocess.py   ← 将 image_key 改为 "observation.imag
 
 ### 8.1 部署时主工程需要的修改
 
-修改 `src/vla/vla/inference/preprocess.py`：
+修改 `src/vla/vla/inference/preprocess.py`（共 4 处）：
+
 ```python
-# 修改前
-self.image_key = "observation.images.laptop"
-# 修改后
-self.image_key = "observation.images.camera"
+# 1. 常量
+_MODEL_STATE_DIM = 2      # 改自 6
+# _MODEL_NUM_CAMERAS 可删除
+
+# 2. image_key（__init__ 中）
+self.image_key = "observation.images.camera"   # 改自 "observation.images.camera1"
+
+# 3. map() 中删除 camera2/camera3 占位逻辑（约 3 行）
+# 删除：
+# _black = np.zeros((3, _MODEL_IMAGE_H, _MODEL_IMAGE_W), dtype=np.uint8)
+# mapped["observation.images.camera2"] = _black
+# mapped["observation.images.camera3"] = _black
+
+# 4. state_vec 简化
+state_vec = np.array([vx, wz], dtype=np.float32)   # 改自 np.zeros(6) 再赋值
+mapped[self.state_key] = state_vec
 ```
 
 修改 `src/smol_bringup/config/model.yaml`：

@@ -214,6 +214,8 @@ class UGVRover:
             self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.config.camera.width)
             self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.config.camera.height)
             self._cap.set(cv2.CAP_PROP_FPS, self.config.camera.fps)
+            # buffer=1：驱动层只保留最新一帧，避免 control loop 读到积压旧帧
+            self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
             # 暖机读取几帧，避免第一帧黑屏
             for _ in range(5):
                 self._cap.read()
@@ -288,7 +290,10 @@ class UGVRover:
                 (self.config.camera.height, self.config.camera.width, 3), dtype=np.uint8
             )
         else:
-            ret, frame = self._cap.read()
+            # grab() 丢弃驱动层积压帧，retrieve() 解码最新帧
+            # 比直接 read() 更能保证时间对齐（尤其在 Jetson USB 摄像头场景下）
+            self._cap.grab()
+            ret, frame = self._cap.retrieve()
             if not ret:
                 logger.warning("Camera read failed, using blank frame.")
                 image = np.zeros(

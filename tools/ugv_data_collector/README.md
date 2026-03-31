@@ -68,6 +68,8 @@ python record.py --no-preview
 python record.py --dry_run
 ```
 
+> **注意**：`--num_episodes` 是**本次追加采集的数量**，不是总目标数量。若已有 5 集数据，再运行 `--num_episodes 10` 将追加第 6\~15 集，总计 15 集。
+
 ---
 
 ## 遥控操作说明
@@ -82,7 +84,7 @@ python record.py --dry_run
 | `D` | 右转 |
 | `Q` | 提高速度档 |
 | `E` | 降低速度档 |
-| `Space` | 急停 |
+| `Space` | 急停（同时暂停帧写入，重按 WASD 自动恢复录制） |
 | `Enter` | 开始录制 / 结束当前 episode（手动模式） |
 | `Esc` / `Ctrl+C` | 保存并退出 |
 
@@ -152,13 +154,26 @@ python -m lerobot.scripts.train \
 
 修改主工程的两个文件：
 
-**1. `src/vla/vla/inference/preprocess.py`**
+**1. `src/vla/vla/inference/preprocess.py`**（共 4 处）
+
 ```python
-# 将此行
-self.image_key = "observation.images.laptop"
-# 改为
-self.image_key = "observation.images.camera"
+# 1. 常量
+_MODEL_STATE_DIM = 2      # 改自 6（aloha_mobile 临时模型用的是 6）
+
+# 2. __init__ 中 image_key
+self.image_key = "observation.images.camera"   # 改自 "observation.images.camera1"
+
+# 3. map() 中删除 camera2/camera3 占位逻辑（约 3 行）
+# 删除：
+# _black = np.zeros(...)
+# mapped["observation.images.camera2"] = _black
+# mapped["observation.images.camera3"] = _black
+
+# 4. state_vec 简化
+state_vec = np.array([vx, wz], dtype=np.float32)   # 改自 np.zeros(6)
 ```
+
+> 当前 `preprocess.py` 配置的是临时 aloha_mobile 预训练模型，用于验证推理链路。训练完成后按上述步骤切换。
 
 **2. `src/smol_bringup/config/model.yaml`**
 ```yaml

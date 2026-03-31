@@ -27,4 +27,11 @@
 - 已整合底盘 cmd_vel 转发：架构决策——ugv_driver 不启动（与 ugv_bringup 共享串口会冲突），cmd_vel 转发逻辑统一集成到 ugv_bringup.py；发送 JSON {"T":13,"X":vx,"Z":wz}
 - 已实现 e_stop 可靠急停：ugv_bringup 订阅 /e_stop Bool，50ms watchdog 持续发零速，_cmd_vel_callback 在 e_stop_active 时立即返回；VLA 节点不感知 e_stop，chassis 节点为唯一仲裁门
 - 已端到端验证：VLA 控制小车运动，空格键急停可靠生效
+- 已完成 ugv_data_collector 二次检查与全面优化（含文档同步）：
+  - 新增 evdev_teleop.py 急停帧过滤：Space 键设 is_estop_active 标志，record.py 跳过急停帧写入数据集，重按 WASD 自动恢复
+  - 优化摄像头帧积压：connect() 设置 CAP_PROP_BUFFERSIZE=1，get_observation() 改用 grab()+retrieve() 保证读取最新帧
+  - 修复 OSD 预览扩展：_preview_frame 新增 is_estop/cmd_vx/cmd_wz/obs_vx/obs_wz 参数，浏览器画面显示急停状态（红色 [E-STOP]）与双行速度信息（CMD/OBS）
+  - 修复遗留 PNG 帧导致视频编码崩溃：每次 episode 开始前调用 _cleanup_stale_images 清理残留临时文件
+  - 修复 LeRobot validate_frame 拒绝 timestamp 键：撤除传真实 timestamp 的改动（当前版本不支持）
+  - 修正 DESIGN.md 与 README.md 文档：odl/odr 由"增量"纠正为"累积值"；image_key 从 laptop 更新到 camera1；部署时 preprocess.py 需改的 4 处完整说明；Space 急停过滤行为；--num_episodes 追加语义
 </toolcall_result>

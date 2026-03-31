@@ -52,6 +52,7 @@ class EvdevUGVTeleop:
         self._held: set[str] = set()
         self._vx = 0.0
         self._wz = 0.0
+        self._estop_active = False
 
         self._device = None
         self._thread: threading.Thread | None = None
@@ -61,6 +62,11 @@ class EvdevUGVTeleop:
     @property
     def is_connected(self) -> bool:
         return self._connected
+
+    @property
+    def is_estop_active(self) -> bool:
+        with self._lock:
+            return self._estop_active
 
     @property
     def current_scale(self) -> float:
@@ -170,6 +176,7 @@ class EvdevUGVTeleop:
                 self._held.clear()
                 self._vx = 0.0
                 self._wz = 0.0
+                self._estop_active = True
                 self._on_key_event("space", "down")
                 return
 
@@ -184,6 +191,7 @@ class EvdevUGVTeleop:
                 self._on_key_event(key, "down")
                 return
 
+            self._estop_active = False  # 操作员重新按键，解除急停
             self._held.add(key)
             self._update_vel_locked()
             self._on_key_event(key, "down")

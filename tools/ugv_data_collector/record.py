@@ -110,7 +110,16 @@ def _start_mjpeg_server(port: int = 8080) -> None:
     )
 
 
-def _preview_frame(frame_rgb, label: str, is_recording: bool = False) -> None:
+def _preview_frame(
+    frame_rgb,
+    label: str,
+    is_recording: bool = False,
+    is_estop: bool = False,
+    cmd_vx: float = 0.0,
+    cmd_wz: float = 0.0,
+    obs_vx: float = 0.0,
+    obs_wz: float = 0.0,
+) -> None:
     """
     将一帧画面编码为 JPEG 并推入 MJPEG 流（不依赖 GUI/GTK）。
     frame_rgb: numpy (H, W, 3) uint8，RGB 格式。
@@ -118,10 +127,31 @@ def _preview_frame(frame_rgb, label: str, is_recording: bool = False) -> None:
     import cv2
     global _mjpeg_latest_jpg
     frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
-    text = f"{'[REC]' if is_recording else '[READY]'}  {label}"
-    color = (0, 60, 220) if is_recording else (0, 200, 60)
-    cv2.putText(frame_bgr, text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 0, 0), 3)
-    cv2.putText(frame_bgr, text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.75, color, 2)
+
+    # --- 第1行：录制状态 / 急停横幅 ---
+    if is_estop:
+        status_text = "[E-STOP]"
+        status_color = (0, 0, 220)   # 红色（BGR）
+    elif is_recording:
+        status_text = "[REC]"
+        status_color = (0, 60, 220)  # 橙红
+    else:
+        status_text = "[READY]"
+        status_color = (0, 200, 60)  # 绿
+    line1 = f"{status_text}  {label}"
+    cv2.putText(frame_bgr, line1, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 0, 0), 3)
+    cv2.putText(frame_bgr, line1, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.75, status_color, 2)
+
+    # --- 第2行：指令速度（操作员输入） ---
+    line2 = f"CMD  vx={cmd_vx:+.2f}m/s  wz={cmd_wz:+.2f}r/s"
+    cv2.putText(frame_bgr, line2, (10, 58), cv2.FONT_HERSHEY_SIMPLEX, 0.60, (0, 0, 0), 3)
+    cv2.putText(frame_bgr, line2, (10, 58), cv2.FONT_HERSHEY_SIMPLEX, 0.60, (230, 230, 230), 2)
+
+    # --- 第3行：底盘反馈速度（观测值） ---
+    line3 = f"OBS  vx={obs_vx:+.2f}m/s  wz={obs_wz:+.2f}r/s"
+    cv2.putText(frame_bgr, line3, (10, 83), cv2.FONT_HERSHEY_SIMPLEX, 0.60, (0, 0, 0), 3)
+    cv2.putText(frame_bgr, line3, (10, 83), cv2.FONT_HERSHEY_SIMPLEX, 0.60, (200, 230, 200), 2)
+
     ret, buf = cv2.imencode(".jpg", frame_bgr, [cv2.IMWRITE_JPEG_QUALITY, 75])
     if ret:
         with _mjpeg_frame_lock:
@@ -398,7 +428,16 @@ def _record_all_episodes(
             robot.send_action(action)
             if preview:
                 obs = robot.get_observation()
-                _preview_frame(obs[camera_key], "Press Enter to start", is_recording=False)
+                _preview_frame(
+                    obs[camera_key],
+                    "Press Enter to start",
+                    is_recording=False,
+                    is_estop=teleop.is_estop_active,
+                    cmd_vx=action["x.vel"],
+                    cmd_wz=action["w.vel"],
+                    obs_vx=obs["x.vel"],
+                    obs_wz=obs["w.vel"],
+                )
             else:
                 time.sleep(period)
 
@@ -432,6 +471,9 @@ def _record_all_episodes(
                 f"  Esc=退出\n"
                 f"{'='*50}"
             )
+
+        # 清理上次失败遗留的图像临时文件（避免旧帧混入本次视频编码）
+        _cleanup_stale_images(dataset.root, camera_key, ep_idx)
 
         # 采集当前 Episode
         frame_count = _record_one_episode(
@@ -480,6 +522,23 @@ def _record_all_episodes(
             )
 
 
+def _cleanup_stale_images(dataset_root, camera_key: str, episode_index: int) -> None:
+    """
+    删除上次失败采集遗留的图像临时文件。
+
+    LeRobot 在 add_frame 时将每帧保存为 PNG 到：
+      {dataset_root}/images/{camera_key}/episode-{N:06d}/
+    save_episode() 会将该目录的所有 PNG 编码成视频并删除。
+    若上次程序崩溃，该目录会残留旧帧，导致视频编码时读到损坏文件。
+    """
+    import shutil
+    from pathlib import Path
+    img_dir = Path(dataset_root) / "images" / camera_key / f"episode-{episode_index:06d}"
+    if img_dir.exists():
+        shutil.rmtree(img_dir)
+        logger.info(f"Cleaned stale image dir: {img_dir}")
+
+
 def _record_one_episode(
     robot,
     teleop,
@@ -524,19 +583,32 @@ def _record_one_episode(
         # 1. 获取观测
         obs = robot.get_observation()
 
-        # 实时预览
+        # 2. 获取遥控动作
+        action = teleop.get_action()
+
+        # 3. 发送动作给小车（急停时也必须发送，保持零速安全）
+        sent_action = robot.send_action(action)
+
+        # 实时预览（在获取 action 后渲染，确保速度数据最新）
         if preview:
             _preview_frame(
                 obs[camera_key],
                 f"ep {episode_index + 1}  frame {frame_count}  t={elapsed:.1f}s",
                 is_recording=True,
+                is_estop=teleop.is_estop_active,
+                cmd_vx=action["x.vel"],
+                cmd_wz=action["w.vel"],
+                obs_vx=obs["x.vel"],
+                obs_wz=obs["w.vel"],
             )
 
-        # 2. 获取遥控动作
-        action = teleop.get_action()
-
-        # 3. 发送动作给小车
-        sent_action = robot.send_action(action)
+        # 急停中：跳过本帧，不写入数据集（避免噪声帧）
+        if teleop.is_estop_active:
+            elapsed_loop = time.perf_counter() - loop_start
+            sleep_time = period - elapsed_loop
+            if sleep_time > 0:
+                time.sleep(sleep_time)
+            continue
 
         # 4. 构建帧 dict（LeRobot 格式）
         #    - observation.state: [vx, wz] 当前底盘状态
@@ -604,6 +676,11 @@ def _wait_reset(
                 obs[camera_key],
                 f"RESET  {remaining:.0f}s remaining",
                 is_recording=False,
+                is_estop=teleop.is_estop_active,
+                cmd_vx=action["x.vel"],
+                cmd_wz=action["w.vel"],
+                obs_vx=obs["x.vel"],
+                obs_wz=obs["w.vel"],
             )
         else:
             time.sleep(period)

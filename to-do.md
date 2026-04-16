@@ -45,11 +45,47 @@
 - [x] 注册到 smol_bringup.launch.py，enable_debug 开关默认 false
 
 # Sprint 6：系统验证与测试
-- [ ] 执行底盘单元测试与接口验证（移自 Sprint 1）
-- [ ] 执行视觉发布的单元测试与接口验证（移自 Sprint 2）
+- [x] 执行底盘单元测试与接口验证（移自 Sprint 1）
+- [x] 执行视觉发布的单元测试与接口验证（移自 Sprint 2）
 - [ ] 执行语音指令处理单元测试（移自 Sprint 3）
-- [ ] 执行 VLA 推理接口测试（移自 Sprint 4）
-- [ ] 验证 e_stop watchdog：发布 /e_stop true 后底盘持续发零速（50ms 间隔）
+- [x] 执行 VLA 推理接口测试（移自 Sprint 4）
+- [x] 验证 e_stop watchdog：发布 /e_stop true 后底盘持续发零速（50ms 间隔）
 - [ ] 压力测试：VLA 长时运行里程计累积、action queue 稳定性
 - [ ] 设计与执行端到端集成测试
+
+# Sprint 7：微调与强化学习
+## 7.1 Fine-tuning（监督式微调）
+- [ ] 学习 LoRA / QLoRA 原理，理解为何适用于 VLA 边缘微调
+- [ ] 掌握 LeRobot 数据集格式（HuggingFace Dataset，episode/frame 结构）
+- [ ] 在 PC/外部机器上对 SmolVLA 执行 LoRA 微调，使用自采小车数据集
+- [ ] 对比原始权重与微调权重在实机上的推理行为差异
+- [ ] 了解 PEFT（Parameter-Efficient Fine-Tuning）库与 LeRobot 的集成方式
+
+## 7.2 强化学习（RL）
+- [ ] 学习 RL 基础：MDP、reward、policy gradient、PPO、SAC 概念
+- [ ] 了解 VLA + RL 的结合思路（RLHF、online RL on robot）
+- [ ] 阅读 LeRobot RL 相关 PR/文档，了解当前支持状态
+- [ ] 设计小车场景的简单 reward 函数（如：到达目标点、避障）
+- [ ] 在仿真/离线环境中跑通基础 RL 实验（可选 IsaacSim/Gym wrapper）
+
+## 7.3 量化（Quantization）
+- [ ] 学习量化基础：PTQ（训练后量化）vs QAT（量化感知训练），INT8/FP16
+- [ ] 掌握 PyTorch 原生量化工具（torch.quantization / torch.ao）
+- [ ] 在 Jetson 上使用 FP16（torch.cuda.amp / model.half()）运行 SmolVLA，对比延迟
+- [ ] 了解 NVIDIA TensorRT 量化流程（ONNX → TRT Engine，INT8 校准）
+- [ ] 评估量化后模型推理精度损失与速度收益
+
+## 7.4 TensorRT 与边缘端部署
+- [ ] 学习 TensorRT 基础：Engine 构建、Layer Fusion、Dynamic Shape
+- [ ] 将 SmolVLA 视觉编码器（SigLIP/DINOv2 backbone）导出为 ONNX
+- [ ] 使用 trtexec 或 Python API 构建 TRT Engine 并在 Jetson 上 benchmark
+- [ ] 学习 torch2trt / TensorRT-LLM 对 Transformer 模型的加速支持
+- [ ] 探索 NVIDIA Jetson 专项优化：DLA（Deep Learning Accelerator）适配、统一内存策略
+- [ ] 集成 TRT 推理引擎到 vla_bridge_node（替换原 PyTorch 推理路径）
+
+## 7.5 综合部署验证
+- [ ] 在 Jetson 上对比四种推理方案延迟：FP32 / FP16 / INT8-PTQ / TRT Engine
+- [ ] 建立推理 benchmark 脚本（延迟、显存、CPU 占用、掉帧率）
+- [ ] 验证量化/TRT 模型在实机上控制效果（与原模型对比）
+- [ ] 更新 smol_bringup 配置，支持通过参数切换推理后端
 

@@ -12,7 +12,7 @@ from launch.actions import (
 )
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import EnvironmentVariable, LaunchConfiguration, TextSubstitution
 from launch_ros.actions import Node
 
 
@@ -38,6 +38,15 @@ def generate_launch_description():
     enable_vla = LaunchConfiguration("enable_vla")
     enable_keyboard = LaunchConfiguration("enable_keyboard")
     enable_debug = LaunchConfiguration("enable_debug")
+    vla_python = LaunchConfiguration("vla_python")
+    lerobot_src = LaunchConfiguration("lerobot_src")
+    enable_mem_defrag = LaunchConfiguration("enable_mem_defrag")
+    mem_defrag_script = LaunchConfiguration("mem_defrag_script")
+
+    # install/smol_bringup/share/smol_bringup -> workspace root
+    workspace_root = os.path.abspath(os.path.join(bringup_dir, "../../../../"))
+    default_lerobot_src = os.path.join(workspace_root, "ref_code", "lerobot-main (SmolVLA)", "src")
+    default_mem_defrag_script = os.path.join(workspace_root, "defrag_memory.sh")
 
     params = [
         base_params,
@@ -77,12 +86,41 @@ def generate_launch_description():
         parameters=params,
     )
 
-    vla_bridge_node = Node(
-        package="vla",
-        executable="vla_bridge_node",
+    # 默认在 conda 环境中拉起 VLA（可通过 vla_python 覆盖解释器路径）
+    vla_bridge_node = ExecuteProcess(
+        cmd=[
+            vla_python,
+            "-m",
+            "vla.vla_bridge_node",
+            "--ros-args",
+            "--params-file",
+            base_params,
+            "--params-file",
+            hardware_params,
+            "--params-file",
+            model_params,
+            "--params-file",
+            mode_params,
+            "--params-file",
+            site_params,
+            "--params-file",
+            validation_params,
+            "--params-file",
+            watchdog_params,
+            "--params-file",
+            test_mode_params,
+            "-p",
+            [TextSubstitution(text="use_sim_time:="), use_sim_time],
+        ],
         name="vla_bridge_node",
         output="screen",
-        parameters=params,
+        additional_env={"LEROBOT_SRC": lerobot_src},
+    )
+
+    mem_defrag = ExecuteProcess(
+        cmd=["bash", mem_defrag_script],
+        output="screen",
+        condition=IfCondition(enable_mem_defrag),
     )
 
     debug_node = Node(
@@ -131,7 +169,10 @@ def generate_launch_description():
 
     vla_group = GroupAction(
         condition=IfCondition(enable_vla),
-        actions=[TimerAction(period=4.0, actions=[vla_bridge_node])],
+        actions=[
+            TimerAction(period=2.5, actions=[mem_defrag]),
+            TimerAction(period=4.0, actions=[vla_bridge_node]),
+        ],
     )
 
     validation_group = GroupAction(
@@ -158,6 +199,30 @@ def generate_launch_description():
             DeclareLaunchArgument("enable_camera", default_value="true"),
             DeclareLaunchArgument("enable_speech", default_value="true"),
             DeclareLaunchArgument("enable_vla", default_value="true"),
+            DeclareLaunchArgument(
+                "enable_mem_defrag",
+                default_value=EnvironmentVariable("ENABLE_MEM_DEFRAG", default_value="false"),
+                description="Run defrag_memory.sh before starting VLA",
+            ),
+            DeclareLaunchArgument(
+                "mem_defrag_script",
+                default_value=EnvironmentVariable(
+                    "MEM_DEFRAG_SCRIPT", default_value=default_mem_defrag_script
+                ),
+                description="Path to memory defrag script",
+            ),
+            DeclareLaunchArgument(
+                "vla_python",
+                default_value=EnvironmentVariable(
+                    "VLA_PYTHON", default_value="/home/jetson/miniforge3/envs/lerobot2/bin/python3"
+                ),
+                description="Python executable for VLA node (default: conda lerobot2)",
+            ),
+            DeclareLaunchArgument(
+                "lerobot_src",
+                default_value=EnvironmentVariable("LEROBOT_SRC", default_value=default_lerobot_src),
+                description="LeRobot source path for VLA node",
+            ),
             # keyboard 默认关闭，调试时手动开启，避免干扰正常推理
             DeclareLaunchArgument("enable_keyboard", default_value="false"),
             # debug_node 是升级后的新入口，包含键盘控制 + 摄像头流推送

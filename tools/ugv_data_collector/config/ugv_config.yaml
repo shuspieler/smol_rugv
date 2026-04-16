@@ -31,8 +31,9 @@ teleop:
 # --- LeRobot 数据集配置 ---
 dataset:
   # 格式：{hf_username}/{dataset_name}
-  repo_id: "myusername/ugv-follow-task"
-  single_task: "Follow the person in front of the robot"
+  repo_id: "myusername/ugv-moveaway-task"
+#  single_task: "Follow the person in front of the robot"
+  single_task: "move away from the column"
   output_dir: "./datasets"
   num_episodes: 20
   episode_time_s: 30

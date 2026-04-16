@@ -78,6 +78,20 @@ smol_rugv/
 pip install -r tools/ugv_ctrl_tester/requirements.txt
 ```
 
+### Conda 环境约定（重要）
+
+- 主系统默认启动（`ros2 launch smol_bringup smol_bringup.launch.py`）中的 `vla_bridge_node` 由 conda `lerobot2` Python 拉起（默认 `/home/jetson/miniforge3/envs/lerobot2/bin/python3`）。
+- 若需要 VLA 使用独立 Conda 依赖（`torch`、`transformers`、`lerobot`），请使用 `lerobot2` 环境，并通过 `src/vla/bin/vla_bridge_node_wrapper.sh` 或 `src/smol_bringup/launch/smol_bringup_conda.launch.py.example` 的方式启动。
+- 建议统一约定：VLA 与数据采集工具都使用同一个 Conda 环境 `lerobot2`，避免版本不一致。
+
+示例：
+
+```bash
+conda activate lerobot2
+python -V
+which python
+```
+
 ### 验证控制通路（无需 LeRobot）
 
 在接真实硬件前，先用 `ugv_ctrl_tester` 确认串口和摄像头正常：
@@ -103,24 +117,49 @@ source install/setup.bash
 ros2 launch smol_bringup smol_bringup.launch.py
 ```
 
+常用一键启动：
+- 全功能：ros2 launch smol_bringup smol_bringup.launch.py
+- 无麦克风场景：ros2 launch smol_bringup smol_bringup.launch.py enable_speech:=false
+- 启动前执行一次内存整理（可选）：ros2 launch smol_bringup smol_bringup.launch.py enable_mem_defrag:=true
+- 无麦克风 + 内存整理（可选）：ros2 launch smol_bringup smol_bringup.launch.py enable_speech:=false enable_mem_defrag:=true
+
+说明：
+- 上述一条 `ros2 launch` 会启动 camera/chassis/speech/vla 等相关节点，其中 VLA 默认使用 conda `lerobot2` 的 Python（`/home/jetson/miniforge3/envs/lerobot2/bin/python3`）。
+- 若你的环境路径不同，可覆盖：`ros2 launch smol_bringup smol_bringup.launch.py vla_python:=/path/to/your/env/bin/python3`
+- 若 LeRobot 源码路径不同，可覆盖：`ros2 launch smol_bringup smol_bringup.launch.py lerobot_src:=/path/to/lerobot/src`
+- 若内存整理脚本路径不同，可覆盖：`ros2 launch smol_bringup smol_bringup.launch.py enable_mem_defrag:=true mem_defrag_script:=/path/to/defrag_memory.sh`
+- 若麦克风/摄像头未接入，`speech_node`/`camera_node` 可能打印设备告警，但不影响底盘与 VLA 节点进程拉起。
+- 内存整理依赖 root 或 sudo NOPASSWD；若权限不足会打印警告并自动跳过，不阻塞启动。
+
 ### 单节点开发调试
 
 ```bash
 source install/setup.bash
 
-# 摄像头（发布 /camera/image_raw）
-ros2 run camera camera_node
+# 1) 最小可运行链路（先开这两个终端）
+ros2 run camera camera_node        # 发布 /camera/image_raw
+ros2 run chassis ugv_bringup       # 底盘读写 + 发布 odom/imu + 接收 /cmd_vel
 
-# 底盘（两个节点均需启动）
-ros2 run chassis ugv_bringup   # 读取串口反馈，发布 odom / IMU
-ros2 run chassis ugv_driver    # 订阅 cmd_vel / e_stop，驱动 ESP32
+# 2) VLA 推理节点（推荐：Conda lerobot2 环境，第三个终端）
+bash src/vla/bin/vla_bridge_node_wrapper.sh
 
-# 调试预览（键盘遥控 + http://IP:8080 MJPEG 流）
-ros2 run debug debug_node
+# 2.1) VLA 启动前执行内存整理（可选）
+MEM_DEFRAG_ON_START=1 bash src/vla/bin/vla_bridge_node_wrapper.sh
 
-# 查看完整串口 TX 日志（DEBUG 级别）
-ros2 run chassis ugv_driver --ros-args --log-level DEBUG
+# 3) 可选调试节点（第四个终端）
+ros2 run debug debug_node          # 键盘遥控 + MJPEG(http://IP:8080)
+
+# 4) 仅在需要系统 Python 路径排障时使用
+ros2 run vla vla_bridge_node
+
+# 5) 查看底盘详细日志（可选）
+ros2 run chassis ugv_bringup --ros-args --log-level DEBUG
 ```
+
+说明：
+- 启动前请先执行 `source install/setup.bash`，确保 `vla` 包可被 Python 找到。
+- 若使用 `ros2 run vla vla_bridge_node`，请确认系统 Python 已安装 `torch` / `transformers` / `lerobot`。
+- 若依赖安装在 conda `lerobot2`，优先使用 `vla_bridge_node_wrapper.sh` 启动，避免 Python 环境不一致导致导入失败。
 
 ## 开发进度
 

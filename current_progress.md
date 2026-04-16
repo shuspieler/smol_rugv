@@ -34,4 +34,21 @@
   - 修复遗留 PNG 帧导致视频编码崩溃：每次 episode 开始前调用 _cleanup_stale_images 清理残留临时文件
   - 修复 LeRobot validate_frame 拒绝 timestamp 键：撤除传真实 timestamp 的改动（当前版本不支持）
   - 修正 DESIGN.md 与 README.md 文档：odl/odr 由"增量"纠正为"累积值"；image_key 从 laptop 更新到 camera1；部署时 preprocess.py 需改的 4 处完整说明；Space 急停过滤行为；--num_episodes 追加语义
+- 已完成 Sprint 6：执行底盘单元测试与接口验证
+- 已完成 Sprint 6：执行视觉发布的单元测试与接口验证
+- 已完成 Sprint 6：执行 VLA 推理接口测试
+- 已完成 Sprint 6：验证 e_stop watchdog（/e_stop true 后底盘持续发零速，50ms 间隔）
+- 已回顾并统一环境文档：README 新增“Conda 环境约定”，明确默认 launch 为系统 Python；VLA 独立依赖推荐 conda `lerobot2`；tools/ugv_data_collector README 同步环境建议为 `lerobot2`
+- 已补充 README 单节点调试说明：新增 VLA 推理节点运行方式（系统 Python `ros2 run vla vla_bridge_node` 与 conda `lerobot2` wrapper 启动）
+- 已修复 vla_bridge_node_wrapper.sh：移除错误的 env/bin/activate 依赖，改为自动解析 conda base 并直接使用 env 内 python3；README 单节点调试已整理为最小可运行链路
+- 已增强 vla_bridge_node_wrapper.sh：自动设置 LEROBOT_SRC 指向项目 ref_code，避免启动时误报 install 路径下 LeRobot source 缺失
+- 已优化主启动：smol_bringup.launch.py 中 VLA 改为默认使用 conda `lerobot2` Python（支持参数 `vla_python:=...` 覆盖）；README“启动完整系统”已同步一句话启动说明
+- 已增强主启动环境参数：新增 `lerobot_src`（默认指向项目 ref_code）并注入 VLA 进程环境，README 同步覆盖方式与硬件未接入时的告警说明
+- 已修复主启动回归：VLA 启动环境改用 additional_env 追加 `LEROBOT_SRC`，避免覆盖 ROS 变量导致 conda Python 下 `rclpy` 导入失败
+- 已修正主启动 `lerobot_src` 默认路径计算（定位到 smol_rugv/ref_code），避免默认回退到上级目录导致的 LeRobot source warning
+- 已补充 README 一键启动变体：新增“全功能”和“无麦克风场景（enable_speech:=false）”命令
+- 已接入“可选内存整理”启动链路：
+  - wrapper 支持 `MEM_DEFRAG_ON_START=1` 启动前执行 `defrag_memory.sh`
+  - 主启动支持 `enable_mem_defrag:=true` 与 `mem_defrag_script:=...` 参数
+  - defrag_memory.sh 支持非交互 sudo 检查（无权限时自动跳过，不阻塞启动）
 </toolcall_result>

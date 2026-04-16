@@ -24,7 +24,7 @@ python -m pip install lerobot
 python -m pip install "lerobot[smolvla]"
 ```
 
-> **环境提示**：若使用 conda 环境，先激活对应环境（如 `conda activate lerobot`），再运行上述命令。
+> **环境提示**：建议与主工程 VLA 侧保持一致，使用同一个 conda 环境（推荐 `conda activate lerobot2`），再运行上述命令。
 
 ### 2. 安装本工具依赖
 

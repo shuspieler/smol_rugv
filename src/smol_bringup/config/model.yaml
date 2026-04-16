@@ -1,4 +1,4 @@
 vla_bridge_node:
   ros__parameters:
-    model_id: lerobot/smolvla_base
+    model_id: /home/jetson/Shu/smol_rugv/models/mySmolVLAaloha_mobile_elevator20000/checkpoints/smolvla_ugv_finetune/005000/pretrained_model
     inference_rate: 10.0

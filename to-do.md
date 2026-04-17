@@ -55,11 +55,11 @@
 
 # Sprint 7：微调与强化学习
 ## 7.1 Fine-tuning（监督式微调）
-- [ ] 学习 LoRA / QLoRA 原理，理解为何适用于 VLA 边缘微调
-- [ ] 掌握 LeRobot 数据集格式（HuggingFace Dataset，episode/frame 结构）
-- [ ] 在 PC/外部机器上对 SmolVLA 执行 LoRA 微调，使用自采小车数据集
+- [x] 学习 LoRA / QLoRA 原理，理解为何适用于 VLA 边缘微调
+- [x] 掌握 LeRobot 数据集格式（HuggingFace Dataset，episode/frame 结构）
+- [x] 在 PC/外部机器上对 SmolVLA 执行 LoRA 微调，使用自采小车数据集
 - [ ] 对比原始权重与微调权重在实机上的推理行为差异
-- [ ] 了解 PEFT（Parameter-Efficient Fine-Tuning）库与 LeRobot 的集成方式
+- [x] 了解 PEFT（Parameter-Efficient Fine-Tuning）库与 LeRobot 的集成方式
 
 ## 7.2 强化学习（RL）
 - [ ] 学习 RL 基础：MDP、reward、policy gradient、PPO、SAC 概念

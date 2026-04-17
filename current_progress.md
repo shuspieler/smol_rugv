@@ -52,4 +52,10 @@
   - 主启动支持 `enable_mem_defrag:=true` 与 `mem_defrag_script:=...` 参数
   - defrag_memory.sh 支持非交互 sudo 检查（无权限时自动跳过，不阻塞启动）
 - 已新增 `vla_bridge_node_wrapper_checkpoint.sh`，并将 README 的 4.1 更新为 conda 环境下按 checkpoint 路径启动的命令
+- 已接入 LoRA 推理模式（保持旧 checkpoint 兼容）：
+  - 新增 `src/vla/bin/vla_bridge_node_wrapper_lora.sh`，默认加载 `models/smolvla_ugv_moveaway_lora_vlm_only`
+  - LoRA 脚本自动设置 `LEROBOT_SRC=smol_rugv/src`，使用仓库内拷贝的 LoRA 版 lerobot
+  - `vla_bridge_node_wrapper.sh` / `vla_bridge_node_wrapper_checkpoint.sh` 旧流程保持不变，可继续用于非 LoRA checkpoint
+- 已补充 LoRA 全系统启动配置：新增 `src/smol_bringup/config/model_lora.yaml`，README 增加 `lerobot_src + model_params=model_lora.yaml` 一键命令
+- 已更新 to-do（Sprint 7.1）：第 1/2/3/5 项标记为完成
 </toolcall_result>

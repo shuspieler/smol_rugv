@@ -31,8 +31,13 @@ if not LEROBOT_SRC:
     PROJECT_ROOT = os.path.abspath(os.path.join(CURRENT_DIR, "../../../../.."))
     LEROBOT_SRC = os.path.join(PROJECT_ROOT, "ref_code", "lerobot-main (SmolVLA)", "src")
 
+# Accept both ".../src" and ".../src/lerobot" for operator convenience.
+if os.path.basename(os.path.normpath(LEROBOT_SRC)) == "lerobot":
+    LEROBOT_SRC = os.path.dirname(LEROBOT_SRC)
+
 if os.path.exists(LEROBOT_SRC) and LEROBOT_SRC not in sys.path:
-    sys.path.append(LEROBOT_SRC)
+    # Prepend to ensure we load the intended local lerobot implementation.
+    sys.path.insert(0, LEROBOT_SRC)
 else:
     logging.warning(f"LeRobot source not found at {LEROBOT_SRC}. Ensure 'ref_code' exists or set LEROBOT_SRC env var.")
 

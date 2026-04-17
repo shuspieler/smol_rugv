@@ -1,0 +1,4 @@
+vla_bridge_node:
+  ros__parameters:
+    model_id: /home/jetson/Shu/smol_rugv/models/smolvla_ugv_moveaway_lora_vlm_only
+    inference_rate: 10.0

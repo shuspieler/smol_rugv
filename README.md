@@ -83,6 +83,9 @@ pip install -r tools/ugv_ctrl_tester/requirements.txt
 - 主系统默认启动（`ros2 launch smol_bringup smol_bringup.launch.py`）中的 `vla_bridge_node` 由 conda `lerobot2` Python 拉起（默认 `/home/jetson/miniforge3/envs/lerobot2/bin/python3`）。
 - 若需要 VLA 使用独立 Conda 依赖（`torch`、`transformers`、`lerobot`），请使用 `lerobot2` 环境，并通过 `src/vla/bin/vla_bridge_node_wrapper.sh` 或 `src/smol_bringup/launch/smol_bringup_conda.launch.py.example` 的方式启动。
 - 建议统一约定：VLA 与数据采集工具都使用同一个 Conda 环境 `lerobot2`，避免版本不一致。
+- 当前仓库支持两套 LeRobot 源码路径：
+  - 默认（兼容旧流程）：`ref_code/lerobot-main (SmolVLA)/src`
+  - LoRA 模式（新流程）：`src/`（使用你拷贝进来的支持 LoRA 的 lerobot）
 
 示例：
 
@@ -122,11 +125,14 @@ ros2 launch smol_bringup smol_bringup.launch.py
 - 无麦克风场景：ros2 launch smol_bringup smol_bringup.launch.py enable_speech:=false
 - 启动前执行一次内存整理（可选）：ros2 launch smol_bringup smol_bringup.launch.py enable_mem_defrag:=true
 - 无麦克风 + 内存整理（可选）：ros2 launch smol_bringup smol_bringup.launch.py enable_speech:=false enable_mem_defrag:=true
+- LoRA 模式（全系统）：ros2 launch smol_bringup smol_bringup.launch.py lerobot_src:=/home/jetson/Shu/smol_rugv/src model_params:=/home/jetson/Shu/smol_rugv/src/smol_bringup/config/model_lora.yaml
 
 说明：
 - 上述一条 `ros2 launch` 会启动 camera/chassis/speech/vla 等相关节点，其中 VLA 默认使用 conda `lerobot2` 的 Python（`/home/jetson/miniforge3/envs/lerobot2/bin/python3`）。
 - 若你的环境路径不同，可覆盖：`ros2 launch smol_bringup smol_bringup.launch.py vla_python:=/path/to/your/env/bin/python3`
 - 若 LeRobot 源码路径不同，可覆盖：`ros2 launch smol_bringup smol_bringup.launch.py lerobot_src:=/path/to/lerobot/src`
+- 若需要临时切到 LoRA checkpoint，推荐使用下方单节点脚本 `vla_bridge_node_wrapper_lora.sh`（无需改写默认配置）。
+- 若需要全系统长期使用 LoRA checkpoint，推荐使用 `model_lora.yaml` 并配合 `lerobot_src:=/home/jetson/Shu/smol_rugv/src` 启动。
 - 若内存整理脚本路径不同，可覆盖：`ros2 launch smol_bringup smol_bringup.launch.py enable_mem_defrag:=true mem_defrag_script:=/path/to/defrag_memory.sh`
 - 若麦克风/摄像头未接入，`speech_node`/`camera_node` 可能打印设备告警，但不影响底盘与 VLA 节点进程拉起。
 - 内存整理依赖 root 或 sudo NOPASSWD；若权限不足会打印警告并自动跳过，不阻塞启动。
@@ -155,6 +161,12 @@ ros2 run vla vla_bridge_node （Python路径问题可能报错不可用）
 # 4.1) 单节点临时切换 checkpoint（Conda 环境，推荐）
 bash src/vla/bin/vla_bridge_node_wrapper_checkpoint.sh /home/jetson/Shu/smol_rugv/models/smolvla_ugv_moveaway_finetune/checkpoints/last/pretrained_model
 
+# 4.2) LoRA checkpoint 启动（使用仓库内 src/lerobot，推荐）
+bash src/vla/bin/vla_bridge_node_wrapper_lora.sh
+
+# 4.3) LoRA checkpoint 启动（显式指定路径）
+bash src/vla/bin/vla_bridge_node_wrapper_lora.sh /home/jetson/Shu/smol_rugv/models/smolvla_ugv_moveaway_lora_vlm_only
+
 # 5) 查看底盘详细日志（可选）
 ros2 run chassis ugv_bringup --ros-args --log-level DEBUG
 ```
@@ -164,6 +176,8 @@ ros2 run chassis ugv_bringup --ros-args --log-level DEBUG
 - 若使用 `ros2 run vla vla_bridge_node`，请确认系统 Python 已安装 `torch` / `transformers` / `lerobot`。
 - 若依赖安装在 conda `lerobot2`，优先使用 `vla_bridge_node_wrapper.sh` 启动，避免 Python 环境不一致导致导入失败。
 - 使用 `vla_bridge_node_wrapper_checkpoint.sh <checkpoint_path>` 仅对当前进程生效，不会改写 `src/smol_bringup/config/model.yaml` 默认值。
+- 使用 `vla_bridge_node_wrapper_lora.sh` 时，会自动将 `LEROBOT_SRC` 切到 `smol_rugv/src`，从而启用 LoRA 版 SmolVLA 实现。
+- 兼容性说明：非 LoRA checkpoint 仍可继续使用 `vla_bridge_node_wrapper.sh` / `vla_bridge_node_wrapper_checkpoint.sh`，不受 LoRA 启动脚本影响。
 
 ## 开发进度
 

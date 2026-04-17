@@ -150,16 +150,20 @@ MEM_DEFRAG_ON_START=1 bash src/vla/bin/vla_bridge_node_wrapper.sh
 ros2 run debug debug_node          # 键盘遥控 + MJPEG(http://IP:8080)
 
 # 4) 仅在需要系统 Python 路径排障时使用
-ros2 run vla vla_bridge_node
+ros2 run vla vla_bridge_node （Python路径问题可能报错不可用）
+
+# 4.1) 单节点临时切换 checkpoint（Conda 环境，推荐）
+bash src/vla/bin/vla_bridge_node_wrapper_checkpoint.sh /home/jetson/Shu/smol_rugv/models/smolvla_ugv_moveaway_finetune/checkpoints/last/pretrained_model
 
 # 5) 查看底盘详细日志（可选）
 ros2 run chassis ugv_bringup --ros-args --log-level DEBUG
 ```
 
 说明：
-- 启动前请先执行 `source install/setup.bash`，确保 `vla` 包可被 Python 找到。
+- 启动前请先执行 `source /opt/ros/humble/setup.bash`, `source install/setup.bash`，确保 `vla` 包可被 Python 找到。
 - 若使用 `ros2 run vla vla_bridge_node`，请确认系统 Python 已安装 `torch` / `transformers` / `lerobot`。
 - 若依赖安装在 conda `lerobot2`，优先使用 `vla_bridge_node_wrapper.sh` 启动，避免 Python 环境不一致导致导入失败。
+- 使用 `vla_bridge_node_wrapper_checkpoint.sh <checkpoint_path>` 仅对当前进程生效，不会改写 `src/smol_bringup/config/model.yaml` 默认值。
 
 ## 开发进度
 

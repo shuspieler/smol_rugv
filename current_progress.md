@@ -51,4 +51,5 @@
   - wrapper 支持 `MEM_DEFRAG_ON_START=1` 启动前执行 `defrag_memory.sh`
   - 主启动支持 `enable_mem_defrag:=true` 与 `mem_defrag_script:=...` 参数
   - defrag_memory.sh 支持非交互 sudo 检查（无权限时自动跳过，不阻塞启动）
+- 已新增 `vla_bridge_node_wrapper_checkpoint.sh`，并将 README 的 4.1 更新为 conda 环境下按 checkpoint 路径启动的命令
 </toolcall_result>

@@ -58,6 +58,7 @@ class SmolVLAPolicyWrapper:
             raise ImportError("LeRobot library not found or failed to import.")
 
         self.logger = logging.getLogger("SmolVLAPolicy")
+        self.logger.setLevel(logging.INFO)
         
         # Check if cuda is actually available
         if device == "cuda" and not torch.cuda.is_available():
@@ -180,6 +181,7 @@ class SmolVLAPolicyWrapper:
             # -----------------------------
 
             self.policy.eval()
+            self._dump_model_debug_info()
             
             # Initialize processors
             self.logger.info("Initializing pre/post processors...")
@@ -194,6 +196,40 @@ class SmolVLAPolicyWrapper:
         except Exception as e:
             self.logger.error(f"Failed to initialize SmolVLA: {e}")
             raise
+
+    def _dump_model_debug_info(self):
+        total_params = 0
+        trainable_params = 0
+        lora_params = 0
+
+        for name, param in self.policy.named_parameters():
+            n = param.numel()
+            total_params += n
+            if param.requires_grad:
+                trainable_params += n
+            if "lora_" in name.lower():
+                lora_params += n
+
+        self.logger.info("[VLA MODEL DEBUG] ===== parameter summary =====")
+        self.logger.info(f"[VLA MODEL DEBUG] total_params={total_params}")
+        self.logger.info(f"[VLA MODEL DEBUG] trainable_params={trainable_params}")
+        self.logger.info(f"[VLA MODEL DEBUG] lora_params={lora_params}")
+
+        self.logger.info("[VLA MODEL DEBUG] ===== lora parameters =====")
+        found_lora = False
+        for name, param in self.policy.named_parameters():
+            if "lora_" in name.lower():
+                found_lora = True
+                self.logger.info(
+                    f"[VLA MODEL DEBUG] {name} shape={tuple(param.shape)} dtype={param.dtype} requires_grad={param.requires_grad}"
+                )
+        if not found_lora:
+            self.logger.info("[VLA MODEL DEBUG] no parameters matched '*lora_*'.")
+
+        self.logger.info("[VLA MODEL DEBUG] ===== module tree =====")
+        for name, module in self.policy.named_modules():
+            module_name = name if name else "<root>"
+            self.logger.info(f"[VLA MODEL DEBUG] {module_name}: {module.__class__.__name__}")
 
     def preprocess(self, observation: Dict[str, Any]) -> Dict[str, Any]:
         """

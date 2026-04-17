@@ -58,4 +58,7 @@
   - `vla_bridge_node_wrapper.sh` / `vla_bridge_node_wrapper_checkpoint.sh` 旧流程保持不变，可继续用于非 LoRA checkpoint
 - 已补充 LoRA 全系统启动配置：新增 `src/smol_bringup/config/model_lora.yaml`，README 增加 `lerobot_src + model_params=model_lora.yaml` 一键命令
 - 已更新 to-do（Sprint 7.1）：第 1/2/3/5 项标记为完成
+- 已修复 LoRA 启动路径易错问题：`vla_bridge_node_wrapper_checkpoint.sh` 支持自动解析到 `checkpoints/last/pretrained_model`（目录传上层也可运行），并同步 README 示例路径
+- 已改为默认模型加载诊断：`smol_vla_policy.py` 在加载后自动打印一次参数摘要、LoRA 参数清单和完整模块树（无需额外开关）
+- 已修复默认层级日志不显示：将 `SmolVLAPolicy` logger 级别显式设为 INFO，确保模型加载时一次性层/LoRA 输出可见
 </toolcall_result>

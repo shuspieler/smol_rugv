@@ -165,7 +165,7 @@ bash src/vla/bin/vla_bridge_node_wrapper_checkpoint.sh /home/jetson/Shu/smol_rug
 bash src/vla/bin/vla_bridge_node_wrapper_lora.sh
 
 # 4.3) LoRA checkpoint 启动（显式指定路径）
-bash src/vla/bin/vla_bridge_node_wrapper_lora.sh /home/jetson/Shu/smol_rugv/models/smolvla_ugv_moveaway_lora_vlm_only
+bash src/vla/bin/vla_bridge_node_wrapper_lora.sh /home/jetson/Shu/smol_rugv/models/smolvla_ugv_moveaway_lora_vlm_only/checkpoints/last/pretrained_model
 
 # 5) 查看底盘详细日志（可选）
 ros2 run chassis ugv_bringup --ros-args --log-level DEBUG
@@ -178,6 +178,7 @@ ros2 run chassis ugv_bringup --ros-args --log-level DEBUG
 - 使用 `vla_bridge_node_wrapper_checkpoint.sh <checkpoint_path>` 仅对当前进程生效，不会改写 `src/smol_bringup/config/model.yaml` 默认值。
 - 使用 `vla_bridge_node_wrapper_lora.sh` 时，会自动将 `LEROBOT_SRC` 切到 `smol_rugv/src`，从而启用 LoRA 版 SmolVLA 实现。
 - 兼容性说明：非 LoRA checkpoint 仍可继续使用 `vla_bridge_node_wrapper.sh` / `vla_bridge_node_wrapper_checkpoint.sh`，不受 LoRA 启动脚本影响。
+- 默认行为：VLA 模型加载完成后会自动打印一次参数摘要、LoRA 参数清单和完整模块树（便于确认是否成功注入 LoRA 层）。
 
 ## 开发进度
 

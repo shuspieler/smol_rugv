@@ -22,6 +22,24 @@ if [[ "$MODEL_ID" == /* || "$MODEL_ID" == ./* || "$MODEL_ID" == ../* ]]; then
         echo "Error: checkpoint path not found: $MODEL_ID"
         exit 1
     fi
+
+    # Auto-resolve common checkpoint directory layouts when config.json is not at root.
+    if [ ! -f "$MODEL_ID/config.json" ]; then
+        if [ -f "$MODEL_ID/checkpoints/last/pretrained_model/config.json" ]; then
+            echo "[INFO] Resolved model root to: $MODEL_ID/checkpoints/last/pretrained_model"
+            MODEL_ID="$MODEL_ID/checkpoints/last/pretrained_model"
+        elif [ -f "$MODEL_ID/pretrained_model/config.json" ]; then
+            echo "[INFO] Resolved model root to: $MODEL_ID/pretrained_model"
+            MODEL_ID="$MODEL_ID/pretrained_model"
+        elif [ -f "$MODEL_ID/last/pretrained_model/config.json" ]; then
+            echo "[INFO] Resolved model root to: $MODEL_ID/last/pretrained_model"
+            MODEL_ID="$MODEL_ID/last/pretrained_model"
+        else
+            echo "Error: config.json not found under: $MODEL_ID"
+            echo "Hint: pass a directory that contains config.json, e.g. */checkpoints/last/pretrained_model"
+            exit 1
+        fi
+    fi
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

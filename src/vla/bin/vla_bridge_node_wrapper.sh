@@ -25,6 +25,9 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 DEFAULT_LEROBOT_SRC="${PROJECT_ROOT}/ref_code/lerobot-main (SmolVLA)/src"
 DEFAULT_MEM_DEFRAG_SCRIPT="${PROJECT_ROOT}/defrag_memory.sh"
 
+# Ensure we import the latest source vla package instead of stale install copies.
+export PYTHONPATH="${PROJECT_ROOT}/src/vla${PYTHONPATH:+:${PYTHONPATH}}"
+
 # 可选：启动前执行内存整理（适用于 Jetson 连续分配失败场景）
 # 开关：MEM_DEFRAG_ON_START=1
 # 脚本路径覆盖：MEM_DEFRAG_SCRIPT=/path/to/defrag_memory.sh

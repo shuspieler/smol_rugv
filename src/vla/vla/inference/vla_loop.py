@@ -26,6 +26,9 @@ class VLALoop(threading.Thread):
                  action_queue: ActionQueue,
                  io: Any, # ROSIO type
                  model_id: str,
+                 default_instruction: str = "",
+                 bypass_postprocess: bool = False,
+                 debug_action_trace: bool = False,
                  frequency: float = 10.0):
         super().__init__()
         self.buffer = buffer
@@ -34,10 +37,15 @@ class VLALoop(threading.Thread):
         self.frequency = frequency
         self.running = False
         self.logger = io.node.get_logger()  # Use ROS logger from io.node
+        self.bypass_postprocess = bool(bypass_postprocess)
+        self.debug_action_trace = bool(debug_action_trace)
         
         # Initialize components
         self.sync_policy = SyncPolicy(logger=self.logger)
-        self.input_mapper = InputMapper()
+        self.input_mapper = InputMapper(
+            default_instruction=default_instruction,
+            logger=self.logger,
+        )
         
         self.logger.info("Initializing VLA Model (this may take time)...")
         self.model = SmolVLAPolicyWrapper(model_id)
@@ -49,6 +57,8 @@ class VLALoop(threading.Thread):
         self._infer_count     = 0
         self._last_infer_ms   = 0.0
         self._last_action     = None  # [vx, wz] of action[0] from last inference
+        self._last_raw_action = None  # [vx, wz] before postprocess
+        self._last_post_action = None # [vx, wz] after postprocess/bypass
         self._last_chunk_size = 0     # T: number of action steps output by last inference
 
     def run(self):
@@ -105,18 +115,48 @@ class VLALoop(threading.Thread):
                 return
             self._last_infer_ms = (time.monotonic() - _t_infer) * 1000.0
             self._infer_count += 1
+            self._last_raw_action = self._extract_first_vx_wz(action_tensor)
             
             # 6. Postprocess
-            try:
-                action_numpy = self.model.postprocess(action_tensor)
-            except Exception as e:
-                self.logger.error(f"Postprocessing failed: {e}")
-                return
+            if self.bypass_postprocess:
+                action_numpy = action_tensor
+            else:
+                try:
+                    action_numpy = self.model.postprocess(action_tensor)
+                except Exception as e:
+                    self.logger.error(f"Postprocessing failed: {e}")
+                    return
+            self._last_post_action = self._extract_first_vx_wz(action_numpy)
+
+            if self.debug_action_trace:
+                self.logger.info(
+                    "[ACTION TRACE] "
+                    f"raw(vx,wz)=({self._fmt_action(self._last_raw_action)})  "
+                    f"post(vx,wz)=({self._fmt_action(self._last_post_action)})  "
+                    f"bypass_postprocess={self.bypass_postprocess}"
+                )
             
             # 7. Push to Queue
             self._push_to_queue(action_numpy)
         except Exception as e:
             self.logger.error(f"Unexpected error in inference step: {e}")
+
+    @staticmethod
+    def _fmt_action(action):
+        if not action:
+            return "N/A"
+        return f"{action[0]:+.3f},{action[1]:+.3f}"
+
+    @staticmethod
+    def _extract_first_vx_wz(action: Any):
+        if isinstance(action, torch.Tensor):
+            action = action.detach().cpu().numpy()
+        arr = np.asarray(action)
+        if arr.ndim == 3:
+            arr = arr[0]
+        if arr.ndim != 2 or arr.shape[0] == 0 or arr.shape[1] < 2:
+            return None
+        return [float(arr[0, 0]), float(arr[0, 1])]
 
     def _push_to_queue(self, action: Any):
         # Convert to CPU numpy if needed
@@ -162,9 +202,11 @@ class VLALoop(threading.Thread):
             "last_infer_ms":   self._last_infer_ms,
             "queue_depth":     self.action_queue.remaining(),
             "last_action":     self._last_action,
+            "last_raw_action": self._last_raw_action,
+            "last_post_action": self._last_post_action,
             "last_chunk_size": self._last_chunk_size,
+            "bypass_postprocess": self.bypass_postprocess,
         }
 
     def stop(self):
         self.running = False
-        self.join()

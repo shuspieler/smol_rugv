@@ -61,4 +61,27 @@
 - 已修复 LoRA 启动路径易错问题：`vla_bridge_node_wrapper_checkpoint.sh` 支持自动解析到 `checkpoints/last/pretrained_model`（目录传上层也可运行），并同步 README 示例路径
 - 已改为默认模型加载诊断：`smol_vla_policy.py` 在加载后自动打印一次参数摘要、LoRA 参数清单和完整模块树（无需额外开关）
 - 已修复默认层级日志不显示：将 `SmolVLAPolicy` logger 级别显式设为 INFO，确保模型加载时一次性层/LoRA 输出可见
+- 已定位并修复“moveaway 推理前进”高风险配置问题：
+  - VLA 输入映射新增 `default_instruction` 回退（当 `/instruction_text` 缺失时，使用配置任务文本，避免空任务导致行为漂移）
+  - `vla_bridge_node` 新增参数 `default_instruction` 并传入推理链路
+  - `smol_bringup/config/model.yaml` 默认模型改为 `smolvla_ugv_moveaway_finetune/checkpoints/last/pretrained_model`
+  - `smol_bringup/config/model_lora.yaml` 路径修正为 `.../checkpoints/last/pretrained_model`
+- 已优化当前调试可读性与启动一致性：
+  - 关闭 SmolVLA 全模块树日志为默认行为（`VLA_MODEL_DEBUG=1` 时才打印）
+  - `vla_bridge_node_wrapper_checkpoint.sh` 默认追加 `default_instruction="move away from the column"`（可通过 `DEFAULT_INSTRUCTION` 覆盖）
+- 已新增动作链路诊断能力（用于定位“前进幅值异常”根因）：
+  - `vla_bridge_node` 新增参数 `bypass_postprocess` 与 `debug_action_trace`
+  - 状态日志新增 `raw`/`post` 动作对比，支持快速判断是否为 postprocess 引入偏移
+  - 修复 Ctrl+C 时推理线程 `join` 重入导致的退出卡顿风险（`VLALoop.stop()` 仅置停标志）
+- 已修复动作后处理未生效的根因：`smol_vla_policy.py` 调用 `make_pre_post_processors` 时参数名从 `pretrained_name_or_path` 更正为 `pretrained_path`，确保从 checkpoint 加载 `policy_pre/postprocessor*.json` 与 stats（不再退回无 stats 的恒等处理）。
+- 已修复 preprocess 维度错配：`InputMapper` 的 `observation.state` 从 6D 改为 2D `[vx,wz]`，与 checkpoint normalizer 的 state stats 对齐，解决 `The size of tensor a (6) must match the size of tensor b (2)` 报错。
+- 已完成离线偏置验证（前 200 帧，GPU）：
+  - raw(vx): mean=+0.016533, std=0.971945, min=-1.432001, max=+0.736235, pos_ratio=0.6750, neg_ratio=0.3250
+  - post(vx): mean=-0.032332, std=0.046125, min=-0.101074, max=+0.001822, pos_ratio=0.1350, neg_ratio=0.8650
+  - 结论：postprocess 链路有效且将 raw 动作映射为以负向为主的控制域输出；“后退任务却前进”主要发生在 raw 域，不是 postprocess 失效导致。
+- 已完成 LoRA 路径与 processor 资产核查：`smolvla_ugv_moveaway_lora_vlm_only/checkpoints/last/pretrained_model` 下 `config.json`、`policy_preprocessor.json`、`policy_postprocessor.json` 齐全；并在 `smol_vla_policy.py` 增加模型根目录自动解析与缺失资产告警，防止路径层级传错导致 postprocess 退化。
+- 已完成训练链一致性修复（`/home/jetson/Shu/lerobotTrain`）：`lerobot_train.py` 在构建 pre/postprocessor 时先按 `rename_map` 重命名 dataset stats，再传入 normalizer/unnormalizer，避免键名映射后 stats 错位。
+- 已定位训练侧核心根因并修复：`lerobotTrain/src/lerobot/policies/factory.py` 在从预训练模型继续微调时会继承旧 `input_features`（如 6D state），导致新数据集训练后 checkpoint 出现“config 特征维度与 stats 不一致”。现已改为始终以当前 dataset/env 特征（并应用 `rename_map`）覆盖 `input_features/output_features`，避免再次产出维度漂移模型。
+- 已确认并修复推理图像尺度错配：当前 checkpoint 的 `policy_preprocessor.json` 对视觉特征为 `VISUAL: IDENTITY`，运行时 ROS 图像原为 `uint8` 仅转 `float32` 未缩放。已在 `smol_vla_policy.py` 的 `step()` 中对 `observation.images.*` 强制转换到 `[0,1]`（`uint8 -> float32/255`），并对异常 `float>1` 输入做一次性告警与防御性 `/255` 缩放，确保与训练输入域一致。
+- 已完成在线验证（仅启动 VLA，复用现有 camera/bringup）：30s 统计 `/cmd_vel` 得到 `vx min=-0.1028, max=0.00087, mean=-0.00256`，`|vx|>0.01` 占比约 `2.49%`（此前约 0）；20s 统计相机原始像素 `img_max=255`（符合 ROS 原始 uint8），并在 VLA 状态日志观测到 post 动作可达 `vx≈-0.101`，表明图像尺度修复后链路可输出有效负向速度脉冲，但整体仍以接近零输出为主（受数据分布与吞吐影响）。
 </toolcall_result>

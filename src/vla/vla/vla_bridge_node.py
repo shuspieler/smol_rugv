@@ -15,12 +15,29 @@ class VLABridgeNode(Node):
         self.declare_parameter('model_id', 'lerobot/smolvla_base')
         self.declare_parameter('inference_rate', 10.0) # Frequency of Model Inference
         self.declare_parameter('control_rate', 20.0)   # Frequency of Action Execution
+        self.declare_parameter('default_instruction', '')
+        self.declare_parameter('bypass_postprocess', False)
+        self.declare_parameter('debug_action_trace', False)
         
         model_id = self.get_parameter('model_id').value
         inference_rate = self.get_parameter('inference_rate').value
         control_rate = self.get_parameter('control_rate').value
+        default_instruction = self.get_parameter('default_instruction').value
+        bypass_postprocess = self.get_parameter('bypass_postprocess').value
+        debug_action_trace = self.get_parameter('debug_action_trace').value
         
         self.get_logger().info(f"Starting VLABridgeNode with model {model_id}...")
+        if isinstance(default_instruction, str) and default_instruction.strip():
+            self.get_logger().info(
+                f"default_instruction is set to: '{default_instruction.strip()}'"
+            )
+        else:
+            self.get_logger().warn(
+                "default_instruction is empty; when /instruction_text is missing, task prompt will be empty."
+            )
+        self.get_logger().info(
+            f"bypass_postprocess={bool(bypass_postprocess)} debug_action_trace={bool(debug_action_trace)}"
+        )
         
         # Initialize components
         self.buffer = SharedBuffer()
@@ -36,6 +53,9 @@ class VLABridgeNode(Node):
                 action_queue=self.action_queue,
                 io=self.ros_io,
                 model_id=model_id,
+                default_instruction=default_instruction,
+                bypass_postprocess=bool(bypass_postprocess),
+                debug_action_trace=bool(debug_action_trace),
                 frequency=inference_rate
             )
             self.vla_loop.start()
@@ -78,6 +98,14 @@ class VLABridgeNode(Node):
                 action_str = f"vx={s['last_action'][0]:+.3f}  wz={s['last_action'][1]:+.3f}"
             else:
                 action_str = "N/A (no inference yet)"
+            if s.get("last_raw_action"):
+                raw_str = f"vx={s['last_raw_action'][0]:+.3f}  wz={s['last_raw_action'][1]:+.3f}"
+            else:
+                raw_str = "N/A"
+            if s.get("last_post_action"):
+                post_str = f"vx={s['last_post_action'][0]:+.3f}  wz={s['last_post_action'][1]:+.3f}"
+            else:
+                post_str = "N/A"
             # Starvation: how often did control_loop find an empty queue this window
             starved = self._starved_count
             total   = self._ctrl_total
@@ -89,6 +117,9 @@ class VLABridgeNode(Node):
                 f"chunk={s['last_chunk_size']}  "
                 f"starved={starved}/{total}({starve_pct:.0f}%)  "
                 f"action=[{action_str}]"
+            )
+            lines.append(
+                f"  Action  │ raw=[{raw_str}]  post=[{post_str}]  bypass_postprocess={s.get('bypass_postprocess', False)}"
             )
         else:
             lines.append("  Infer   │ DEGRADED (model not loaded)")

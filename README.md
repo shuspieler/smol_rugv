@@ -160,6 +160,10 @@ ros2 run vla vla_bridge_node （Python路径问题可能报错不可用）
 
 # 4.1) 单节点临时切换 checkpoint（Conda 环境，推荐）
 bash src/vla/bin/vla_bridge_node_wrapper_checkpoint.sh /home/jetson/Shu/smol_rugv/models/smolvla_ugv_moveaway_finetune/checkpoints/last/pretrained_model
+# 默认会注入 `default_instruction="move away from the column"`，可覆盖：
+# DEFAULT_INSTRUCTION="your task" bash src/vla/bin/vla_bridge_node_wrapper_checkpoint.sh <checkpoint_path>
+# 动作链路诊断（打印 raw/post 动作对比，并可旁路 postprocess）：
+# bash src/vla/bin/vla_bridge_node_wrapper_checkpoint.sh <checkpoint_path> -p debug_action_trace:=true -p bypass_postprocess:=true
 
 # 4.2) LoRA checkpoint 启动（使用仓库内 src/lerobot，推荐）
 bash src/vla/bin/vla_bridge_node_wrapper_lora.sh

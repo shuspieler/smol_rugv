@@ -16,6 +16,10 @@ fi
 MODEL_ID="$1"
 shift
 
+# Default instruction fallback for single-task moveaway checkpoints.
+# Can be overridden by env var or extra ros args.
+DEFAULT_INSTRUCTION="${DEFAULT_INSTRUCTION:-move away from the column}"
+
 # If input looks like a local path, validate directory exists.
 if [[ "$MODEL_ID" == /* || "$MODEL_ID" == ./* || "$MODEL_ID" == ../* ]]; then
     if [ ! -d "$MODEL_ID" ]; then
@@ -43,6 +47,22 @@ if [[ "$MODEL_ID" == /* || "$MODEL_ID" == ./* || "$MODEL_ID" == ../* ]]; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
+
+# Compatibility bridge:
+# Newer training pipelines may persist LoRA-related SmolVLAConfig fields even
+# for non-LoRA checkpoints. The legacy ref_code lerobot config cannot parse
+# these fields. If we detect them in local config.json, switch to the local
+# src/lerobot implementation that supports the extended config.
+if [ -z "${LEROBOT_SRC:-}" ] && [ -f "$MODEL_ID/config.json" ]; then
+    if grep -q '"use_lora"\s*:' "$MODEL_ID/config.json"; then
+        if [ -d "$PROJECT_ROOT/src" ]; then
+            export LEROBOT_SRC="$PROJECT_ROOT/src"
+            echo "[INFO] Detected LoRA config fields in checkpoint; using LEROBOT_SRC=$LEROBOT_SRC"
+        fi
+    fi
+fi
+
 BASE_WRAPPER="$SCRIPT_DIR/vla_bridge_node_wrapper.sh"
 
 if [ ! -f "$BASE_WRAPPER" ]; then
@@ -50,4 +70,4 @@ if [ ! -f "$BASE_WRAPPER" ]; then
     exit 1
 fi
 
-exec bash "$BASE_WRAPPER" --ros-args -p model_id:="$MODEL_ID" "$@"
+exec bash "$BASE_WRAPPER" --ros-args -p model_id:="$MODEL_ID" -p default_instruction:="$DEFAULT_INSTRUCTION" "$@"

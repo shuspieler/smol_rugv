@@ -31,19 +31,19 @@ if not LEROBOT_SRC:
     PROJECT_ROOT = os.path.abspath(os.path.join(CURRENT_DIR, "../../../../.."))
     LEROBOT_SRC = os.path.join(PROJECT_ROOT, "ref_code", "lerobot-main (SmolVLA)", "src")
 
-# Accept both ".../src" and ".../src/lerobot" for operator convenience.
-if os.path.basename(os.path.normpath(LEROBOT_SRC)) == "lerobot":
-    LEROBOT_SRC = os.path.dirname(LEROBOT_SRC)
-
-if os.path.exists(LEROBOT_SRC) and LEROBOT_SRC not in sys.path:
-    # Prepend to ensure we load the intended local lerobot implementation.
+if os.path.exists(LEROBOT_SRC):
+    # Put preferred lerobot source at the highest priority.
+    if LEROBOT_SRC in sys.path:
+        sys.path.remove(LEROBOT_SRC)
     sys.path.insert(0, LEROBOT_SRC)
 else:
     logging.warning(f"LeRobot source not found at {LEROBOT_SRC}. Ensure 'ref_code' exists or set LEROBOT_SRC env var.")
 
 try:
+    import lerobot as _lerobot_pkg
     from lerobot.policies.smolvla.modeling_smolvla import SmolVLAPolicy
     from lerobot.policies.factory import make_pre_post_processors
+    logging.info(f"Using LeRobot from: {os.path.dirname(_lerobot_pkg.__file__)}")
 except ImportError as e:
     logging.warning(f"Could not import lerobot: {e}. Ensure ref_code is present and dependencies are installed.")
     SmolVLAPolicy = None
@@ -58,7 +58,6 @@ class SmolVLAPolicyWrapper:
             raise ImportError("LeRobot library not found or failed to import.")
 
         self.logger = logging.getLogger("SmolVLAPolicy")
-        self.logger.setLevel(logging.INFO)
         
         # Check if cuda is actually available
         if device == "cuda" and not torch.cuda.is_available():
@@ -66,6 +65,7 @@ class SmolVLAPolicyWrapper:
             device = "cpu"
             
         self.device = torch.device(device)
+        self._warned_image_scale = False
         
         self.logger.info(f"Loading SmolVLA model: {model_id} on {self.device}...")
 
@@ -168,26 +168,42 @@ class SmolVLAPolicyWrapper:
                 self.policy.config.adapt_to_pi_aloha = False
                 
             # 2. Check Action Dimension
-            #    We expect 2 dimensions (v, w). If the loaded model has more (e.g., original 14D model),
-            #    we log a warning but proceed (the inference loop will handle slicing).
+            #    We expect 2 dimensions (v, w). Use real action feature dimension,
+            #    not max_action_dim (internal padded width).
             expected_action_dim = 2
-            if self.policy.config.max_action_dim != expected_action_dim:
+            actual_action_dim = None
+            try:
+                action_feature = getattr(self.policy.config, 'action_feature', None)
+                if action_feature is not None and getattr(action_feature, 'shape', None):
+                    actual_action_dim = int(action_feature.shape[0])
+                elif hasattr(self.policy.config, 'output_features') and isinstance(self.policy.config.output_features, dict):
+                    action_ft = self.policy.config.output_features.get('action')
+                    if action_ft is not None and getattr(action_ft, 'shape', None):
+                        actual_action_dim = int(action_ft.shape[0])
+            except Exception:
+                actual_action_dim = None
+
+            if actual_action_dim is None:
+                self.logger.warning(
+                    "Could not determine action output dimension from config; "
+                    f"max_action_dim={self.policy.config.max_action_dim}."
+                )
+            elif actual_action_dim != expected_action_dim:
                 self.logger.warning(
                     f"Model action dimension mismatch! Expected {expected_action_dim} (v, w), "
-                    f"but got {self.policy.config.max_action_dim}. "
+                    f"but got {actual_action_dim}. "
                     "Ensure you are using the fine-tuned UGV model. "
                     "Inference will proceed but actions may be sliced."
                 )
             # -----------------------------
 
             self.policy.eval()
-            self._dump_model_debug_info()
             
             # Initialize processors
             self.logger.info("Initializing pre/post processors...")
             self.preprocess_pipeline, self.postprocess_pipeline = make_pre_post_processors(
                 self.policy.config,
-                pretrained_name_or_path=model_id,
+                pretrained_path=model_id,
                 preprocessor_overrides={"device_processor": {"device": str(self.device)}}
             )
             
@@ -196,40 +212,6 @@ class SmolVLAPolicyWrapper:
         except Exception as e:
             self.logger.error(f"Failed to initialize SmolVLA: {e}")
             raise
-
-    def _dump_model_debug_info(self):
-        total_params = 0
-        trainable_params = 0
-        lora_params = 0
-
-        for name, param in self.policy.named_parameters():
-            n = param.numel()
-            total_params += n
-            if param.requires_grad:
-                trainable_params += n
-            if "lora_" in name.lower():
-                lora_params += n
-
-        self.logger.info("[VLA MODEL DEBUG] ===== parameter summary =====")
-        self.logger.info(f"[VLA MODEL DEBUG] total_params={total_params}")
-        self.logger.info(f"[VLA MODEL DEBUG] trainable_params={trainable_params}")
-        self.logger.info(f"[VLA MODEL DEBUG] lora_params={lora_params}")
-
-        self.logger.info("[VLA MODEL DEBUG] ===== lora parameters =====")
-        found_lora = False
-        for name, param in self.policy.named_parameters():
-            if "lora_" in name.lower():
-                found_lora = True
-                self.logger.info(
-                    f"[VLA MODEL DEBUG] {name} shape={tuple(param.shape)} dtype={param.dtype} requires_grad={param.requires_grad}"
-                )
-        if not found_lora:
-            self.logger.info("[VLA MODEL DEBUG] no parameters matched '*lora_*'.")
-
-        self.logger.info("[VLA MODEL DEBUG] ===== module tree =====")
-        for name, module in self.policy.named_modules():
-            module_name = name if name else "<root>"
-            self.logger.info(f"[VLA MODEL DEBUG] {module_name}: {module.__class__.__name__}")
 
     def preprocess(self, observation: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -255,7 +237,7 @@ class SmolVLAPolicyWrapper:
         """
         # Move all tensors to model device (preprocess pipeline may leave some on CPU).
         # Add batch dim if missing (preprocess returns unbatched tensors for single obs).
-        # Cast uint8 images to float32; model is fully float32 (policy.float() in __init__).
+        # Ensure image tensors are float32 in [0, 1] to match training input domain.
         model_dtype = next(self.policy.parameters()).dtype  # expected: float32
         batch_on_device = {}
         for k, v in batch.items():
@@ -266,9 +248,23 @@ class SmolVLAPolicyWrapper:
                     t = t.unsqueeze(0)
                 elif t.ndim == 1 and k == 'observation.state':
                     t = t.unsqueeze(0)
-                # Only cast uint8 images to float32; leave everything else as-is
-                if t.dtype == torch.uint8:
-                    t = t.to(torch.float32)
+                # SmolVLA preprocessor config uses VISUAL: IDENTITY, so image scaling
+                # must be handled here for ROS uint8 camera frames.
+                if k.startswith('observation.images'):
+                    if t.dtype == torch.uint8:
+                        t = t.to(torch.float32) / 255.0
+                    elif t.dtype.is_floating_point:
+                        # Defensive path: if upstream provides float images in [0,255],
+                        # rescale once and warn to surface the mismatch.
+                        max_val = float(t.max().item()) if t.numel() > 0 else 0.0
+                        if max_val > 1.5:
+                            t = t / 255.0
+                            if not self._warned_image_scale:
+                                self.logger.warning(
+                                    "Image tensor max>1 detected for floating-point input; "
+                                    "auto-rescaling by /255 to match training domain [0,1]."
+                                )
+                                self._warned_image_scale = True
                 batch_on_device[k] = t
             else:
                 batch_on_device[k] = v

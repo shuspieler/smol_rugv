@@ -1,28 +1,29 @@
 import numpy as np
 from typing import Dict, Any
 
-# Shape expected by the current pretrained model (mySmolVLAaloha_mobile_elevator).
-# When fine-tuning on UGV data, a model with 1 camera and 2D state will be used,
-# and these constants should be updated accordingly.
+# Runtime input layout for the current UGV checkpoint.
 _MODEL_IMAGE_H = 256
 _MODEL_IMAGE_W = 256
-_MODEL_STATE_DIM = 6   # aloha_mobile state dim; our 2D state is padded with zeros
+_MODEL_STATE_DIM = 2   # [vx, wz] to match checkpoint normalizer stats
 _MODEL_NUM_CAMERAS = 3 # camera1 is real, camera2/3 are black (zero-filled)
 
 class InputMapper:
     """
     Maps raw ROS data (from SharedBuffer) to the feature dictionary expected by LeRobot.
 
-    Key-name and dimension conventions are aligned to the currently loaded model.
-    For the aloha_mobile_elevator pretrained model:
+        Key-name and dimension conventions are aligned to the currently loaded model.
+        For the current UGV checkpoint:
       - observation.images.camera1  →  real RGB image from the UGV camera
       - observation.images.camera2/3 → black (zero) placeholder images
-      - observation.state           →  [vx, wz, 0, 0, 0, 0]  (padded to 6D)
+            - observation.state           →  [vx, wz]  (2D)
     """
-    def __init__(self):
+    def __init__(self, default_instruction: str = "", logger=None):
         self.image_key   = "observation.images.camera1"  # matches model's camera1
         self.state_key   = "observation.state"
         self.task_key    = "task"
+        self.default_instruction = (default_instruction or "").strip()
+        self.logger = logger
+        self._warned_missing_instruction = False
 
     def map(self, snapshot_data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -44,7 +45,7 @@ class InputMapper:
         mapped["observation.images.camera3"] = _black
 
         # 2. State (Proprioception)
-        # UGV provides [vx, wz]; pad to _MODEL_STATE_DIM with zeros for model compatibility.
+        # Use 2D [vx, wz] to match checkpoint normalizer stats.
         if snapshot_data.get("odom") is not None:
             odom = snapshot_data["odom"]
             vx = odom["linear_velocity"][0]
@@ -57,6 +58,17 @@ class InputMapper:
         mapped[self.state_key] = state_vec
 
         # 3. Task (Instruction)
-        mapped[self.task_key] = snapshot_data.get("instruction") or ""
+        instruction = snapshot_data.get("instruction")
+        if isinstance(instruction, str):
+            instruction = instruction.strip()
+        if not instruction:
+            instruction = self.default_instruction
+            if instruction and self.logger and not self._warned_missing_instruction:
+                self.logger.warn(
+                    f"No /instruction_text received, using default_instruction='{instruction}'.",
+                    throttle_duration_sec=10.0,
+                )
+                self._warned_missing_instruction = True
+        mapped[self.task_key] = instruction or ""
 
         return mapped
